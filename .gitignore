@@ -1,0 +1,54 @@
+# ── Environment / Secrets ──
+.env
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+dmypy.json
+
+# ── SQLite / Local DB ──
+*.db
+*.sqlite
+*.sqlite3
+data/paytrust.db
+data/paytrust.db-journal
+
+# ── Streamlit ──
+.streamlit/secrets.toml
+
+# ── Data / Evaluation artifacts ──
+data/synthetic_transactions.csv
+data/transactions.json
+data/evaluation/results.json
+data/evaluation/report.md
+evaluation/results.json
+evaluation/report.md
+
+# ── Models ──
+models/*.pkl
+models/*.joblib
+*.h5
+
+# ── Logs ──
+*.log
+logs/
+
+# ── IDE / OS ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Build ──
+dist/
+build/
+*.egg-info/
