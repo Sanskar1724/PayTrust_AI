@@ -3,6 +3,7 @@
 > **Razorpay Buildathon — AI-agent payment safety.** Controls whether an AI agent may spend on behalf of a user: **Policy → Risk → Evidence → AI Investigation (advisory) → Decision Simulation → ALLOW / ASK_USER / DENY → Razorpay TEST MODE**.
 
 **Production-minded local prototype** — runs with **Streamlit + SQLite + Python 3.11/3.12**, no Docker/Postgres/Redis required for Phases 1-10. Deterministic policy is final; LLM never overrides.
+![MIT](https://img.shields.io/badge/License-MIT-green) ![Python](https://img.shields.io/badge/Python-3.11%7C3.12-blue) ![Streamlit](https://img.shields.io/badge/Streamlit-1.39-red) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-teal) ![scikit-learn](https://img.shields.io/badge/scikit--learn-1.5-orange) ![IEEE-CIS](https://img.shields.io/badge/dataset-IEEE--CIS%20590k-9cf) ![Tests](https://img.shields.io/badge/tests-128%20passed-brightgreen) ![CI](https://img.shields.io/github/actions/workflow/status/Sanskar1724/PayTrust_AI/ci.yml?branch=main)
 
 ## 30-Second Demo
 
@@ -96,6 +97,18 @@ python -m api.main
 - `GET /v1/payments`, `GET /v1/payments/{id}`, `GET /v1/evaluation/metrics`, `/health`, `/ready`.
 - Deployment: `Dockerfile` + `docker-compose.yml` + `docs/DEPLOYMENT.md` (Hugging Face
   Spaces Docker recommended — free, serves both API + dashboard).
+## External Resources & Integrations
+
+| Resource | What it gives us | Status |
+|---|---|---|
+| [IEEE-CIS Fraud Detection (Kaggle](https://www.kaggle.com/datasets/mlg-ulb/ieee-fraud-detection) | Real 590k train + 506k test transactions; kept local ~1.3 GB (gitignored, never committed) | ✅ trained in chunks, 506,691 predictions |
+| [Razorpay Payments API](https://razorpay.com/docs/api/payments/) | TEST-mode orders + webhooks (raw-body HMAC, idempotent, defense-only) | ✅ wired (`RAZORPAY_KEY_ID=rzp_test_*` in `.env`) |
+| [Hugging Face Spaces (Docker](https://huggingface.co/new-space) | Free public URL serving dashboard + API behind one Space | 📋 `docs/DEPLOYMENT.md:1` |
+| [OpenRouter](https://openrouter.ai/) / [Groq](https://groq.com/) / [Gemini](https://ai.google.dev/) / [Ollama](http://localhost:11434) | Advisory AI explanation (provider fallback chain → deterministic when offline) | 🔑 optional keys in `.env` |
+| GitHub Actions | CI on push/PR: install → compile → 128 tests → threshold smoke | ✅ `.github/workflows/ci.yml` |
+| Repo | [`github.com/Sanskar1724/PayTrust_AI`](https://github.com/Sanskar1724/PayTrust_AI) | 🔗 source |
+
+**Safety:** Razorpay TEST MODE only, defense-only — no live money, no offensive features.
 
 ## Testing
 

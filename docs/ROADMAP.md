@@ -10,6 +10,7 @@
 - **FastAPI REST:** boots → all 11 routes registered (`/health`, `/ready`, `/v1/evaluate`, `/v1/payments{,/id}`, `/v1/webhooks/razorpay`, `/v1/evaluation/metrics`, `/v1/threshold{,/curves,/recommend,/check}`)
 - **Real-world ML:** IEEE-CIS 590k trained in chunks; held-out temporal test 3,000 rows predictions committed → threshold decision tool
 - **Repo:** committed at `389ffd5` (includes `ai-payment-copilot` production track).
+- **External readiness (new this session:** GitHub Actions CI (`.github/workflows/ci.yml`), README badges + external-resources table, `docs/DEMO.md` judge script, `requirements.txt` + `pyarrow` (parquet dep now declared(.
 
 ## The 4-phase plan (what the project is)
 
@@ -42,7 +43,7 @@
 
 ## What remains (all optional — core product is ready)
 
-1. **Generate `evaluation/submission.csv`** — 506k test predictions (button in `app.py` → Real World (IEEE) → Generate Submission; or CLI — use the bundled `.venv` (Python 3.12 + scikit-learn) since the system Python 3.14 lacks sklearn):
+1. ✅ **`evaluation/submission.csv` generated** — 506,691 test predictions (14.7 MB, `TransactionID,isFraud` probabilities; gitignored as regenerable( — regenerate anytime after retraining (command below(:
    ```powershell
    .\.venv\Scripts\python.exe -W ignore -m models.predict_ieee --model models/ieee_model.pkl --out evaluation/submission.csv
    ```
