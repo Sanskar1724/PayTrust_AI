@@ -1,0 +1,59 @@
+{
+  "seed": 42,
+  "csv": "data\\synthetic_transactions.csv",
+  "n_train": 413,
+  "n_val": 89,
+  "n_test": 89,
+  "feature_cols": [
+    "amount",
+    "hour",
+    "is_night",
+    "is_blocked_category",
+    "is_high_amount",
+    "is_new_merchant",
+    "agent_risk"
+  ],
+  "logistic": {
+    "val": {
+      "precision": 1.0,
+      "recall": 0.9230769230769231,
+      "f1": 0.96,
+      "pr_auc": 0.9757085020242913,
+      "roc_auc": 0.9939271255060729,
+      "confusion": [
+        [
+          76,
+          0
+        ],
+        [
+          1,
+          12
+        ]
+      ]
+    },
+    "test": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "pr_auc": 0.9999999999999998,
+      "roc_auc": 1.0,
+      "confusion": [
+        [
+          76,
+          0
+        ],
+        [
+          0,
+          13
+        ]
+      ]
+    }
+  },
+  "isolation_forest": {
+    "precision": 0.8571428571428571
+  },
+  "has_xgb": false,
+  "model": "logistic_regression_balanced",
+  "disclaimer": "Trained on SYNTHETIC data \u2014 not real fraud, not claim of production performance",
+  "model_path": "models\\risk_model.pkl"
+}

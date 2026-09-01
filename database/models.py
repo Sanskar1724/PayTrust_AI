@@ -1,12 +1,13 @@
 """
-database/models.py — Pydantic models for SQLite rows (validation boundary).
-
-Phase 4 will expand PaymentRequest validation; for Phase 1 keep minimal.
+database/models.py — Re-export for convenience.
+PaymentRequest canonical model lives in models/payment_request.py (Phase 4).
 """
 from __future__ import annotations
 
+from models.payment_request import PaymentRequest, ALLOWED_CATEGORIES, ALLOWED_CURRENCIES
+
+from pydantic import BaseModel
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
 
 
 class UserModel(BaseModel):
@@ -30,22 +31,11 @@ class MerchantModel(BaseModel):
     region: Optional[str] = None
 
 
-class PaymentRequestModel(BaseModel):
-    request_id: str
-    user_id: int
-    agent_id: int
-    merchant_id: int
-    merchant_name: str
-    amount: int = Field(..., ge=1, description="Amount in INR, must be >=1")
-    currency: str = Field(default="INR", pattern="^(INR)$")
-    category: str
-    description: Optional[str] = None
-    agent_reason: Optional[str] = None
-
-    @field_validator("category")
-    @classmethod
-    def validate_category(cls, v: str) -> str:
-        allowed = {"electronics", "books", "travel", "food", "fashion", "grocery", "fuel", "gambling", "financial_products"}
-        if v.lower() not in allowed:
-            raise ValueError(f"Invalid category '{v}'. Allowed: {sorted(allowed)}")
-        return v.lower()
+__all__ = [
+    "UserModel",
+    "AgentModel",
+    "MerchantModel",
+    "PaymentRequest",
+    "ALLOWED_CATEGORIES",
+    "ALLOWED_CURRENCIES",
+]

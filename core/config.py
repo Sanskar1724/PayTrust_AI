@@ -23,12 +23,19 @@ class Settings(BaseSettings):
 
     # ── App ──
     APP_NAME: str = "PayTrust AI"
-    APP_VERSION: str = "0.1.0"
+    APP_VERSION: str = "0.1.1"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
     SECRET_KEY: str = "change-me-to-a-random-string-min-32-chars"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+
+    # ── API Service (api/) ──
+    # Merchant-facing API key for /v1/evaluate etc. If empty in dev, a
+    # deterministic dev key is derived from SECRET_KEY (never committed).
+    PAYTRUST_API_KEY: Optional[str] = None
+    # Comma-separated allowlist. "*" in dev only — must be set in production.
+    CORS_ALLOW_ORIGINS: str = "*"
 
     # ── Database ──
     DATABASE_URL: str = "sqlite:///./data/paytrust.db"
@@ -40,6 +47,7 @@ class Settings(BaseSettings):
 
     # ── LLM Providers (priority: OpenRouter → Groq → Gemini → deterministic) ──
     OPENROUTER_API_KEY: Optional[str] = None
+    OPENROUTER_MODEL: str = "google/gemma-3-27b-it:free"
     GROQ_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
     OLLAMA_BASE_URL: str = "http://localhost:11434"
@@ -96,6 +104,10 @@ class Settings(BaseSettings):
             warnings.append("SECRET_KEY is default — change in production")
         if self.RAZORPAY_KEY_ID and self.RAZORPAY_KEY_SECRET and not str(self.RAZORPAY_KEY_ID).startswith("rzp_test_"):
             warnings.append("RAZORPAY_KEY_ID does not look like TEST MODE (rzp_test_*)")
+        if self.ENVIRONMENT.lower() == "production" and not self.PAYTRUST_API_KEY:
+            warnings.append("PAYTRUST_API_KEY is not set — the merchant API would use a derived dev key")
+        if self.ENVIRONMENT.lower() == "production" and self.CORS_ALLOW_ORIGINS in ("", "*"):
+            warnings.append("CORS_ALLOW_ORIGINS must be an explicit allowlist in production (not '*')")
         return warnings
 
 

@@ -1,0 +1,40 @@
+# Python / env
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.tox/
+
+# Secrets — never into an image
+.env
+.env.*
+!.env.example
+
+# Git / CI
+.git/
+.gitignore
+.github/
+
+# Local DB / logs
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# Big data (kept out of the image; mount volumes instead)
+data/required csv/
+data/processed/
+data/*.parquet
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+.DS_Store

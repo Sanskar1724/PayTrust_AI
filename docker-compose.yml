@@ -1,0 +1,50 @@
+# PayTrust AI — production-minded local reference compose (single host)
+#   docker compose up --build -d
+#   → API http://localhost:8000  | Swagger /docs
+#   → Dashboard http://localhost:8501
+# Not required for local dev (SQLite/Streamlit run natively).
+
+services:
+  api:
+    build: .
+    image: paytrust-ai:latest
+    container_name: paytrust-api
+    # Copy `.env.example` → `.env` and fill in production values.
+    env_file:
+      - .env
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - SECRET_KEY=${SECRET_KEY}
+      - PAYTRUST_API_KEY=${PAYTRUST_API_KEY}
+      - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-https://paytrust.ai}
+    ports:
+      - "8000:8000"
+    volumes:
+      - paytrust_data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  dashboard:
+    build: .
+    image: paytrust-ai:latest
+    container_name: paytrust-dashboard
+    command: ["python", "-m", "streamlit", "run", "app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
+    env_file:
+      - .env
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+    ports:
+      - "8501:8501"
+    volumes:
+      - paytrust_data:/app/data
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  paytrust_data:

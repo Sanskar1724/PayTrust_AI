@@ -14,6 +14,8 @@ dmypy.json
 
 # ── SQLite / Local DB ──
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 data/paytrust.db
@@ -25,8 +27,9 @@ data/paytrust.db-journal
 # ── Data / Evaluation artifacts ──
 data/synthetic_transactions.csv
 data/transactions.json
-data/evaluation/results.json
-data/evaluation/report.md
+data/processed/
+data/required csv/
+#   ^ raw IEEE CSVs (~1.3 GB) — never commit. Download prov: IEEE Fraud Detection.
 evaluation/results.json
 evaluation/report.md
 

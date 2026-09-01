@@ -1,0 +1,222 @@
+{
+  "seed": 42,
+  "n_train": 14450,
+  "n_val": 2550,
+  "n_test": 3000,
+  "feature_cols": [
+    "TransactionAmt",
+    "TransactionAmt_log",
+    "TransactionAmt_zscore",
+    "hour",
+    "day",
+    "is_night",
+    "is_weekend",
+    "card1",
+    "card2",
+    "card3",
+    "card5",
+    "addr1",
+    "addr2",
+    "dist1",
+    "dist2",
+    "V_sum",
+    "V_mean",
+    "V_missing",
+    "card1_count",
+    "amt_per_card_mean",
+    "has_identity",
+    "C1",
+    "C2",
+    "C3",
+    "C4",
+    "C5",
+    "C6",
+    "C7",
+    "C8",
+    "C9",
+    "C10",
+    "C11",
+    "C12",
+    "C13",
+    "C14",
+    "D1",
+    "D2",
+    "D3",
+    "D4",
+    "D5",
+    "D6",
+    "D7",
+    "D8",
+    "D9",
+    "D10",
+    "D11",
+    "D12",
+    "D13",
+    "D14",
+    "D15",
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "M7",
+    "M8",
+    "M9",
+    "V1",
+    "V2",
+    "V3",
+    "V4",
+    "V5",
+    "V6",
+    "V7",
+    "V8",
+    "V9",
+    "V10",
+    "ProductCD_C",
+    "ProductCD_H",
+    "ProductCD_R",
+    "ProductCD_S",
+    "ProductCD_W",
+    "P_emaildomain_freq_Missing",
+    "P_emaildomain_freq_Other",
+    "P_emaildomain_freq_anonymous.com",
+    "P_emaildomain_freq_gmail.com",
+    "P_emaildomain_freq_hotmail.com",
+    "P_emaildomain_freq_yahoo.com",
+    "DeviceType_Missing",
+    "DeviceType_desktop",
+    "DeviceType_mobile",
+    "card4_Missing",
+    "card4_american express",
+    "card4_discover",
+    "card4_mastercard",
+    "card4_visa",
+    "card6_Missing",
+    "card6_credit",
+    "card6_debit",
+    "card6_debit or credit"
+  ],
+  "feature_importance": [
+    {
+      "feature": "C1",
+      "coef": 4.165727766575034
+    },
+    {
+      "feature": "C14",
+      "coef": -3.9874864258097804
+    },
+    {
+      "feature": "V8",
+      "coef": -2.289848141119206
+    },
+    {
+      "feature": "C3",
+      "coef": -1.5400778680763518
+    },
+    {
+      "feature": "has_identity",
+      "coef": -1.4075672702409707
+    },
+    {
+      "feature": "V6",
+      "coef": 1.3270779290186987
+    },
+    {
+      "feature": "D1",
+      "coef": 1.0526903835375399
+    },
+    {
+      "feature": "D2",
+      "coef": -1.0023922433860424
+    },
+    {
+      "feature": "M3",
+      "coef": -0.973500235618771
+    },
+    {
+      "feature": "C6",
+      "coef": 0.9285040362386097
+    },
+    {
+      "feature": "C11",
+      "coef": -0.8268919271282646
+    },
+    {
+      "feature": "M5",
+      "coef": 0.7737375828946179
+    },
+    {
+      "feature": "V1",
+      "coef": 0.7712250979464663
+    },
+    {
+      "feature": "C12",
+      "coef": 0.7675975913432138
+    },
+    {
+      "feature": "D8",
+      "coef": -0.7441238194645413
+    },
+    {
+      "feature": "M2",
+      "coef": 0.7012476948015639
+    },
+    {
+      "feature": "DeviceType_Missing",
+      "coef": -0.6640064778104463
+    },
+    {
+      "feature": "TransactionAmt_log",
+      "coef": 0.6532608773714563
+    },
+    {
+      "feature": "card1_count",
+      "coef": -0.5733238440949013
+    },
+    {
+      "feature": "C2",
+      "coef": -0.5462157985766952
+    }
+  ],
+  "logistic": {
+    "val": {
+      "precision": 0.08714285714285715,
+      "recall": 0.8356164383561644,
+      "f1": 0.15782664941785252,
+      "pr_auc": 0.5072221782630139,
+      "roc_auc": 0.8810038657014396,
+      "confusion": [
+        [
+          1838,
+          639
+        ],
+        [
+          12,
+          61
+        ]
+      ]
+    },
+    "test": {
+      "precision": 0.08946772366930918,
+      "recall": 0.8229166666666666,
+      "f1": 0.16138917262512767,
+      "pr_auc": 0.31445653694386494,
+      "roc_auc": 0.8419170397153352,
+      "confusion": [
+        [
+          2100,
+          804
+        ],
+        [
+          17,
+          79
+        ]
+      ]
+    }
+  },
+  "lightgbm": null,
+  "disclaimer": "Trained on IEEE Fraud Detection (real) but synthetic labels not \u2014 use PR-AUC, not accuracy, due to 3.5% fraud rate",
+  "test_predictions_path": "evaluation\\ieee_test_predictions.parquet",
+  "test_predictions_rows": 3000
+}

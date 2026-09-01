@@ -42,7 +42,18 @@ class RedactingFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         msg = super().format(record)
         for pat in _REDACT_PATTERNS:
-            msg = pat.sub(r"\1***REDACTED***", msg)
+            try:
+                # Patterns with a capture group keep the prefix, others just replace
+                if pat.groups >= 1:
+                    msg = pat.sub(r"\1***REDACTED***", msg)
+                else:
+                    msg = pat.sub("***REDACTED***", msg)
+            except Exception:
+                # Fallback: simple replace without group reference
+                try:
+                    msg = pat.sub("***REDACTED***", msg)
+                except Exception:
+                    pass
         return msg
 
 

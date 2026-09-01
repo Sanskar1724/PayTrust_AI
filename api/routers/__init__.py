@@ -1,0 +1,1 @@
+"""API routers — thin HTTP adapters over api/service.py functions."""
