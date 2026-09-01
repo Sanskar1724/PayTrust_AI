@@ -19,6 +19,7 @@
 ## Architecture
 
 See `docs/ARCHITECTURE.md:1` for diagram and module map. Key files:
+Also see `docs/ROADMAP.md:1` — the 4-phase plan, buildathon-15 requirements checklist, and remaining optional items.
 
 - `app.py:1` — Streamlit 10 pages
 - `api/main.py:1` — FastAPI REST service over the tested engines (`docs/API.md`)

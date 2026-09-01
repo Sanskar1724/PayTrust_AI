@@ -4,7 +4,7 @@ models/predict_ieee.py — Generate submission.csv for test (506k) using trained
 Also maps IEEE transaction to PayTrust PaymentRequest for real-world demo.
 
 Usage:
-  python -m models.predict_ieee --model models/ieee_model.pkl --test data/required\ csv/ieee-fraud-detection/test_transaction.csv --out evaluation/submission.csv
+  python -m models.predict_ieee --model models/ieee_model.pkl --test data/required csv/ieee-fraud-detection/test_transaction.csv --out evaluation/submission.csv
 """
 from __future__ import annotations
 
@@ -58,14 +58,12 @@ def predict_test(model_path: Path, test_trans: Path, test_id: Path, out_path: Pa
             # Drop non-feature object cols (like id_*, DeviceInfo)
             if col not in features and not col.startswith("TransactionID"):
                 df[col] = df[col].astype(str)
-        # Align to training features: add missing cols as 0, drop extra
-        for c in features:
-            if c not in df.columns:
-                df[c] = 0
-        X = df[features].apply(pd.to_numeric, errors='coerce').fillna(0)
-        # Ensure numeric
-        X = X.select_dtypes(include=[np.number])
-        # If still mismatch, re-align
+        # Align EXACTLY to the model's training feature set (name + order): zero-fill
+        # absent dummy categories (e.g. a domain unseen in this chunk) and drop
+        # unseen categories / extra columns — matches what the scaler saw at fit time.
+
+        X = df.reindex(columns=features, fill_value=0)
+        X = X.apply(pd.to_numeric, errors="coerce").fillna(0.0)
         # Predict
         Xs = scaler.transform(X)
         prob = model.predict_proba(Xs)[:,1]
