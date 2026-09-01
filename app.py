@@ -98,12 +98,31 @@ def _audit_logs(limit=100):
         cur.execute("SELECT request_id, event_type, actor, action, created_at FROM audit_logs ORDER BY created_at DESC LIMIT ?", (limit,))
         return [dict(r) for r in cur.fetchall()]
 
+@st.cache_data(show_spinner=False)
+def _load_preds_df():
+    """Honest held-out IEEE test predictions (for threshold tool)."""
+    from models.threshold import load_test_predictions
+    return load_test_predictions()
+
+
+@st.cache_data(show_spinner=False)
+def _threshold_curves():
+    """Sweep curves across thresholds — cached, computed once."""
+    from models.threshold import sweep, to_curves
+    return to_curves(sweep(step=0.01))
+
+
+@st.cache_data(show_spinner=False)
+def _threshold_recommend():
+    """Operating-point hints (max F1, min SIMULATED cost) — business decision, labelled."""
+    from models.threshold import best_operating_point
+    return best_operating_point()
 # Sidebar
 with st.sidebar:
     st.markdown("### 🛡️ PayTrust AI")
     st.caption("AI-agent payment safety layer • local prototype + real IEEE data")
     st.divider()
-    nav = st.radio("Navigate", ["Dashboard","Agent Policy","Payment Request","Risk Assessment","AI Investigation","Decision Simulator","Payment History","Real World (IEEE)","Help & Glossary","Audit Log"], label_visibility="collapsed")
+    nav = st.radio("Navigate", ["Dashboard","Agent Policy","Payment Request","Risk Assessment","AI Investigation","Decision Simulator","Payment History","Real World (IEEE)","Evaluation & Thresholds","Help & Glossary","Audit Log"], label_visibility="collapsed")
     st.markdown("---")
     st.caption("Need help? → **Help & Glossary** explains every variable")
     st.divider()
@@ -663,6 +682,57 @@ elif nav == "Real World (IEEE)":
         else:
             st.info("No submission yet — generate from test CSVs.")
         st.caption("Also used: `synthetic_transactions.csv` (123 rows) for PayTrust policy demos — see Payment History → Generate Synthetic.")
+
+elif nav == "Evaluation & Thresholds":
+    st.subheader("Evaluation & Thresholds — Real IEEE Held-Out Test + SIMULATED Cost Trade-off")
+    st.caption("Every number comes from actual artifacts on disk — nothing invented. Costs are SIMULATED / ESTIMATED (core/config.py), never forecasts.")
+    preds_ready = Path("evaluation/ieee_test_predictions.parquet").exists()
+    report_path = Path("evaluation/ieee_report.json")
+    c1, c2, c3 = st.columns(3)
+    with c1: st.metric("Held-out test rows", f"{len(_load_preds_df()):,}" if preds_ready else "—")
+    with c2: st.metric("Test predictions file", "✅ ready" if preds_ready else "missing")
+    with c3: st.metric("Model report", "✅ ieee_report.json" if report_path.exists() else "missing")
+    if not preds_ready:
+        st.info("No test predictions yet — run training first: **Real World (IEEE)** → Train (or `python -m models.train_ieee_chunked`).", icon="⏳")
+    else:
+        if report_path.exists():
+            report = json.loads(report_path.read_text())
+            test = report.get("logistic", {}).get("test", {})
+            m1, m2, m3, m4 = st.columns(4)
+            with m1: st.metric("PR-AUC", f"{test.get('pr_auc', 0):.3f}")
+            with m2: st.metric("ROC-AUC", f"{test.get('roc_auc', 0):.3f}")
+            with m3: st.metric("F1", f"{test.get('f1', 0):.3f}")
+            with m4: st.metric("Recall", f"{test.get('recall', 0):.3f}")
+            st.caption(f"Precision {test.get('precision', 0):.3f} • Confusion {test.get('confusion')} • {report.get('disclaimer', '')}")
+        rec = _threshold_recommend()
+        t = st.slider("Fraud-probability threshold (p)", 0.0, 1.0, 0.95, 0.01, key="eval_thr")
+        from models.threshold import metrics_at
+        m = metrics_at(t, _load_preds_df())
+        k1, k2, k3, k4, k5, k6 = st.columns(6)
+        with k1: st.metric("Precision", f"{m['precision']:.3f}")
+        with k2: st.metric("Recall", f"{m['recall']:.3f}")
+        with k3: st.metric("F1", f"{m['f1']:.3f}")
+        with k4: st.metric("FPR", f"{m['false_positive_rate']:.3f}")
+        with k5: st.metric("Blocked", f"{m['blocked_count']:,}")
+        with k6: st.metric("Missed fraud", f"{m['fn']}")
+        st.markdown(f"**Confusion (actual):** TP {m['tp']} • FP {m['fp']} • TN {m['tn']} • FN {m['fn']} — at p={t:.2f}")
+        cost1, cost2, cost3 = st.columns(3)
+        with cost1: st.metric("Fraud exposure (SIM)", f"{m['fraud_exposure']:,.0f}")
+        with cost2: st.metric("FP cost (SIM)", f"{m['false_positive_cost']:,.0f}")
+        with cost3: st.metric("Expected total cost (SIM)", f"{m['expected_total_cost']:,.0f}")
+        st.caption(m["disclaimer"])
+        st.markdown("**Recommended operating points (hints over a SIMULATED cost model — your call, not a mandate)**")
+        st.markdown(f"- **Max F1 @ p={rec['max_f1']['threshold']:.2f}** → precision {rec['max_f1']['precision']:.3f}, recall {rec['max_f1']['recall']:.3f}, F1 {rec['max_f1']['f1']:.3f}")
+        st.markdown(f"- **Min SIM total cost @ p={rec['min_expected_total_cost']['threshold']:.2f}** → expected cost {rec['min_expected_total_cost']['expected_total_cost']:,.0f}")
+        st.caption(rec.get("disclaimer", ""))
+        with st.expander("Threshold sweep curves (precision / recall / F1 / FPR / cost)", expanded=True):
+            cdf = pd.DataFrame(_threshold_curves())
+            st.line_chart(cdf.set_index("threshold")[["precision", "recall", "f1", "false_positive_rate"]])
+            st.line_chart(cdf.set_index("threshold")[["fraud_exposure", "false_positive_cost", "expected_total_cost"]])
+            st.caption("X-axis = fraud-probability threshold. Top: classification metrics. Bottom: SIMULATED costs.")
+        if Path("evaluation/ml_report.json").exists():
+            with st.expander("Synthetic demo model report (explicitly NOT production performance)"):
+                st.json(json.loads(Path("evaluation/ml_report.json").read_text()))
 
 elif nav == "Help & Glossary":
     st.subheader("Help & Glossary — How to Use PayTrust AI + What Every Variable Means")
