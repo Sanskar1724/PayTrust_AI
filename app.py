@@ -332,9 +332,20 @@ elif nav == "Risk Assessment":
         pol = {"violations": viol, "reasons": []}
         ctx = {"daily_limit": 100000, "daily_spent": daily_spent, "transactions_last_hour": tx_hour, "user_total_txns": 1 if new_user else 20, "is_new_merchant": new_merch, "is_new_user": new_user}
         res = risk_engine.assess({"amount": amt, "category": cat, "merchant_risk_tier": "high" if cat=="gambling" else "standard"}, pol, ctx)
-        st.metric("Risk Score", res["risk_score"])
-        st.progress(res["risk_score"]/100)
-        st.markdown(f"**Level: {res['risk_level']}**")
+        color = "#34D399" if res["risk_score"] < 31 else ("#FBBF24" if res["risk_score"] < 61 else "#F87171")
+        fig = go.Figure(go.Indicator(
+            mode="gauge+number", value=res["risk_score"], number={"font": {"size": 36}},
+            title={"text": res["risk_level"], "font": {"size": 16, "color": color}},
+            gauge={"axis": {"range": [0, 100], "tickcolor": "#94A3B8"},
+                   "bar": {"color": color, "thickness": .6},
+                   "bgcolor": "rgba(0,0,0,0)",
+                   "steps": [{"range": [0, 30], "color": "rgba(52,211,153,.08)"},
+                             {"range": [30, 60], "color": "rgba(251,191,36,.08)"},
+                             {"range": [60, 100], "color": "rgba(248,113,113,.08)"}],
+                   "bordercolor": "#334155"},
+        ))
+        fig.update_layout(height=200, margin=dict(l=5, r=5, t=5, b=5), paper_bgcolor="rgba(0,0,0,0)", font={"color": "#F1F5F9", "family": "Inter"})
+        st.plotly_chart(fig, width="stretch", key="risk_gauge")
         for f in res["factors"]: st.markdown(f"• **{f['name']}** [{f['severity']}] +{f['score']}: {f['details']}")
         with st.expander("JSON"): st.json(res)
 
@@ -370,9 +381,17 @@ elif nav == "AI Investigation":
             if ai_res.get("error"): st.warning(ai_res["error"], icon="⚠️")
             st.info(ai_res["explanation"], icon="🤖")
             c1,c2 = st.columns(2)
-            with c1: st.markdown("**Concerns**"); [st.markdown(f"• {c}") for c in ai_res.get("concerns",[])]
-            with c2: st.markdown("**Review questions**"); [st.markdown(f"• {q}") for q in ai_res.get("review_questions",[])]
+            with c1:
+                st.markdown("**Concerns**")
+                with st.container(border=True):
+                    for c in ai_res.get("concerns",[]): st.markdown(f"• {c}")
+            with c2:
+                st.markdown("**Review questions**")
+                with st.container(border=True):
+                    for q in ai_res.get("review_questions",[]): st.markdown(f"• {q}")
+            st.progress(ai_res.get("confidence",0)/100)
             st.caption(f"Confidence: {ai_res.get('confidence',0):.0%}")
+            with st.expander("Full AI response (JSON)", icon=":material/data_object:"): st.json(ai_res)
         st.warning("Safety: deterministic final. AI is assistant.", icon="🔒")
 
 elif nav == "Decision Simulator":
@@ -401,13 +420,16 @@ elif nav == "Decision Simulator":
         st.table(pd.DataFrame(sim["counterfactuals"])[["action","fraud_exposure","false_positive_cost","operational_cost","expected_total_cost","customer_friction","policy_violation","rationale"]])
         st.caption(sim["disclaimer"])
         # What if panels
+        st.markdown("#### What-if scenarios")
         c1,c2,c3 = st.columns(3)
         for col, action in zip([c1,c2,c3], ["ALLOW","ASK_USER","DENY"]):
             cf = next(x for x in sim["counterfactuals"] if x["action"]==action)
             with col:
-                st.markdown(f"**What if {action}?**")
-                st.metric("Total (SIM)", f"INR {cf['expected_total_cost']:.0f}")
-                st.caption(f"Friction: {cf['customer_friction']}, fraud: INR {cf['fraud_exposure']:.0f}")
+                with st.container(border=True):
+                    st.markdown(f"**What if {action}?**")
+                    st.metric("Total cost (SIM)", f"INR {cf['expected_total_cost']:.0f}")
+                    st.caption(f"Friction: {cf['customer_friction']} • Fraud: INR {cf['fraud_exposure']:.0f}")
+                    st.caption(f"FP cost: INR {cf['false_positive_cost']:.0f} • OpEx: INR {cf['operational_cost']:.0f}")
         st.success(f"**Recommended (SIMULATED): {sim['recommended']}**")
 
 elif nav == "Payment History":
@@ -681,48 +703,66 @@ elif nav == "Evaluation & Thresholds":
     st.caption("Every number comes from actual artifacts on disk — nothing invented. Costs are SIMULATED / ESTIMATED (core/config.py), never forecasts.")
     preds_ready = Path("evaluation/ieee_test_predictions.parquet").exists()
     report_path = Path("evaluation/ieee_report.json")
-    c1, c2, c3 = st.columns(3)
-    with c1: st.metric("Held-out test rows", f"{len(_load_preds_df()):,}" if preds_ready else "—")
-    with c2: st.metric("Test predictions file", "✅ ready" if preds_ready else "missing")
-    with c3: st.metric("Model report", "✅ ieee_report.json" if report_path.exists() else "missing")
+    with st.container(horizontal=True):
+        st.metric("Held-out test rows", f"{len(_load_preds_df()):,}" if preds_ready else "—", border=True)
+        st.metric("Test predictions", "ready" if preds_ready else "missing", border=True)
+        st.metric("Model report", "ieee_report.json" if report_path.exists() else "missing", border=True)
     if not preds_ready:
         st.info("No test predictions yet — run training first: **Real World (IEEE)** → Train (or `python -m models.train_ieee_chunked`).", icon="⏳")
     else:
         if report_path.exists():
             report = json.loads(report_path.read_text())
             test = report.get("logistic", {}).get("test", {})
-            m1, m2, m3, m4 = st.columns(4)
-            with m1: st.metric("PR-AUC", f"{test.get('pr_auc', 0):.3f}")
-            with m2: st.metric("ROC-AUC", f"{test.get('roc_auc', 0):.3f}")
-            with m3: st.metric("F1", f"{test.get('f1', 0):.3f}")
-            with m4: st.metric("Recall", f"{test.get('recall', 0):.3f}")
+            with st.container(horizontal=True):
+                st.metric("PR-AUC", f"{test.get('pr_auc', 0):.3f}", border=True)
+                st.metric("ROC-AUC", f"{test.get('roc_auc', 0):.3f}", border=True)
+                st.metric("F1 @ 0.5", f"{test.get('f1', 0):.3f}", border=True)
+                st.metric("Recall @ 0.5", f"{test.get('recall', 0):.3f}", border=True)
             st.caption(f"Precision {test.get('precision', 0):.3f} • Confusion {test.get('confusion')} • {report.get('disclaimer', '')}")
         rec = _threshold_recommend()
         t = st.slider("Fraud-probability threshold (p)", 0.0, 1.0, 0.95, 0.01, key="eval_thr")
         from models.threshold import metrics_at
         m = metrics_at(t, _load_preds_df())
-        k1, k2, k3, k4, k5, k6 = st.columns(6)
-        with k1: st.metric("Precision", f"{m['precision']:.3f}")
-        with k2: st.metric("Recall", f"{m['recall']:.3f}")
-        with k3: st.metric("F1", f"{m['f1']:.3f}")
-        with k4: st.metric("FPR", f"{m['false_positive_rate']:.3f}")
-        with k5: st.metric("Blocked", f"{m['blocked_count']:,}")
-        with k6: st.metric("Missed fraud", f"{m['fn']}")
+        with st.container(horizontal=True):
+            st.metric("Precision", f"{m['precision']:.3f}", border=True)
+            st.metric("Recall", f"{m['recall']:.3f}", border=True)
+            st.metric("F1", f"{m['f1']:.3f}", border=True)
+            st.metric("FPR", f"{m['false_positive_rate']:.3f}", border=True)
+            st.metric("Blocked", f"{m['blocked_count']:,}", border=True)
+            st.metric("Missed fraud", f"{m['fn']}", border=True)
         st.markdown(f"**Confusion (actual):** TP {m['tp']} • FP {m['fp']} • TN {m['tn']} • FN {m['fn']} — at p={t:.2f}")
-        cost1, cost2, cost3 = st.columns(3)
-        with cost1: st.metric("Fraud exposure (SIM)", f"{m['fraud_exposure']:,.0f}")
-        with cost2: st.metric("FP cost (SIM)", f"{m['false_positive_cost']:,.0f}")
-        with cost3: st.metric("Expected total cost (SIM)", f"{m['expected_total_cost']:,.0f}")
+        with st.container(horizontal=True):
+            st.metric("Fraud exposure (SIM)", f"{m['fraud_exposure']:,.0f}", border=True)
+            st.metric("FP cost (SIM)", f"{m['false_positive_cost']:,.0f}", border=True)
+            st.metric("Expected total cost (SIM)", f"{m['expected_total_cost']:,.0f}", border=True)
         st.caption(m["disclaimer"])
         st.markdown("**Recommended operating points (hints over a SIMULATED cost model — your call, not a mandate)**")
         st.markdown(f"- **Max F1 @ p={rec['max_f1']['threshold']:.2f}** → precision {rec['max_f1']['precision']:.3f}, recall {rec['max_f1']['recall']:.3f}, F1 {rec['max_f1']['f1']:.3f}")
         st.markdown(f"- **Min SIM total cost @ p={rec['min_expected_total_cost']['threshold']:.2f}** → expected cost {rec['min_expected_total_cost']['expected_total_cost']:,.0f}")
         st.caption(rec.get("disclaimer", ""))
-        with st.expander("Threshold sweep curves (precision / recall / F1 / FPR / cost)", expanded=True):
+        with st.expander("Threshold sweep curves (precision / recall / F1 / FPR / cost)", icon=":material/monitoring:", expanded=True):
             cdf = pd.DataFrame(_threshold_curves())
-            st.line_chart(cdf.set_index("threshold")[["precision", "recall", "f1", "false_positive_rate"]])
-            st.line_chart(cdf.set_index("threshold")[["fraud_exposure", "false_positive_cost", "expected_total_cost"]])
-            st.caption("X-axis = fraud-probability threshold. Top: classification metrics. Bottom: SIMULATED costs.")
+            metric_fig = go.Figure()
+            for col, color in [("precision", "#60A5FA"), ("recall", "#34D399"), ("f1", "#A78BFA"), ("false_positive_rate", "#F87171")]:
+                metric_fig.add_trace(go.Scatter(x=cdf["threshold"], y=cdf[col], name=col, mode="lines", line=dict(color=color, width=2)))
+            for y, lbl, color in [(rec['max_f1']['threshold'], "max F1", "#A78BFA")]:
+                metric_fig.add_vline(x=y, line_width=1.5, line_dash="dot", line_color=color, annotation_text=lbl, annotation_font_color=color)
+            metric_fig.add_vline(x=t, line_width=2, line_color="#F1F5F9", annotation_text=f"selected {t:.2f}", annotation_font_color="#F1F5F9")
+            metric_fig.update_layout(height=340, margin=dict(l=10, r=10, t=10, b=10),
+                                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                     font={"color": "#CBD5E1", "family": "Inter"}, legend={"orientation": "h", "y": 1.12},
+                                     xaxis={"title": "Threshold p", "gridcolor": "#1E293B"}, yaxis={"gridcolor": "#1E293B", "range": [0, 1.05]})
+            st.plotly_chart(metric_fig, width="stretch", key="eval_metric_curve")
+            cost_fig = go.Figure()
+            for col, color in [("fraud_exposure", "#F87171"), ("false_positive_cost", "#FBBF24"), ("expected_total_cost", "#60A5FA")]:
+                cost_fig.add_trace(go.Scatter(x=cdf["threshold"], y=cdf[col], name=col, mode="lines", line=dict(color=color, width=2), fill="tozeroy" if col == "expected_total_cost" else None, fillcolor="rgba(96,165,250,.08)"))
+            cost_fig.add_vline(x=t, line_width=2, line_color="#F1F5F9", annotation_text=f"selected {t:.2f}", annotation_font_color="#F1F5F9")
+            cost_fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10),
+                                   paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                   font={"color": "#CBD5E1", "family": "Inter"}, legend={"orientation": "h", "y": 1.12},
+                                   xaxis={"title": "Threshold p", "gridcolor": "#1E293B"}, yaxis={"title": "INR (SIMULATED)", "gridcolor": "#1E293B"})
+            st.plotly_chart(cost_fig, width="stretch", key="eval_cost_curve")
+            st.caption("X-axis = fraud-probability threshold. Top: classification metrics. Bottom: SIMULATED costs. Dashed = recommended, solid white = your slider.")
         if Path("evaluation/ml_report.json").exists():
             with st.expander("Synthetic demo model report (explicitly NOT production performance)"):
                 st.json(json.loads(Path("evaluation/ml_report.json").read_text()))
