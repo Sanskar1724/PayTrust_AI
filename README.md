@@ -3,7 +3,7 @@
 > **Razorpay Buildathon — AI-agent payment safety.** Controls whether an AI agent may spend on behalf of a user: **Policy → Risk → Evidence → AI Investigation (advisory) → Decision Simulation → ALLOW / ASK_USER / DENY → Razorpay TEST MODE**.
 
 **Production-minded local prototype** — runs with **Streamlit + SQLite + Python 3.11/3.12**, no Docker/Postgres/Redis required for Phases 1-10. Deterministic policy is final; LLM never overrides.
-![MIT](https://img.shields.io/badge/License-MIT-green) ![Python](https://img.shields.io/badge/Python-3.11%7C3.12-blue) ![Streamlit](https://img.shields.io/badge/Streamlit-1.39-red) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-teal) ![scikit-learn](https://img.shields.io/badge/scikit--learn-1.5-orange) ![IEEE-CIS](https://img.shields.io/badge/dataset-IEEE--CIS%20590k-9cf) ![Tests](https://img.shields.io/badge/tests-128%20passed-brightgreen) ![CI](https://img.shields.io/github/actions/workflow/status/Sanskar1724/PayTrust_AI/ci.yml?branch=main)
+![MIT](https://img.shields.io/badge/License-MIT-green) ![Python](https://img.shields.io/badge/Python-3.11%7C3.12-blue) ![Streamlit](https://img.shields.io/badge/Streamlit-1.63-red) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-teal) ![scikit-learn](https://img.shields.io/badge/scikit--learn-1.5-orange) ![IEEE-CIS](https://img.shields.io/badge/dataset-IEEE--CIS%20590k-9cf) ![Tests](https://img.shields.io/badge/tests-128%20passed-brightgreen) ![CI](https://img.shields.io/github/actions/workflow/status/Sanskar1724/PayTrust_AI/ci.yml?branch=main)
 
 ## Brief → Product Mapping (read this first, judges)
 

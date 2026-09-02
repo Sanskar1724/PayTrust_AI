@@ -35,20 +35,18 @@ settings = get_settings()
 logger = get_logger("app")
 configure_root_logging()
 
-st.set_page_config(page_title=f"{settings.APP_NAME} — Local Prototype", page_icon="🛡️", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title=f"{settings.APP_NAME} — Payment Safety Copilot", page_icon=":material/security:", layout="wide", initial_sidebar_state="expanded")
 
+# Minimal CSS — only what native theming can't express (decision pills used in f-strings below).
+# Everything else (colors, fonts, borders) lives in .streamlit/config.toml.
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-.mono { font-family: 'JetBrains Mono', monospace; }
-.hero { background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f766e 100%); color: white; padding: 1.6rem 1.5rem; border-radius: 16px; margin-bottom: 1rem; }
-.hero h1 { margin: 0; font-size: 1.85rem; font-weight: 700; }
-.hero p { margin: .3rem 0 0; opacity: .92; font-size: .92rem; }
-.phase-badge { display: inline-block; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 999px; padding: .12rem .6rem; font-size: .75rem; color: #334155; margin-right: .3rem; }
-.decision-ALLOW { background: #ecfdf5; border: 1px solid #6ee7b7; color: #065f46; padding: .4rem .7rem; border-radius: 8px; font-weight: 700; }
-.decision-ASK_USER { background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; padding: .4rem .7rem; border-radius: 8px; font-weight: 700; }
-.decision-DENY { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; padding: .4rem .7rem; border-radius: 8px; font-weight: 700; }
+.decision-ALLOW { background: rgba(52,211,153,.12); border: 1px solid #34d399; color: #34d399; padding: .45rem .8rem; border-radius: 8px; font-weight: 700; display: inline-block; }
+.decision-ASK_USER { background: rgba(251,191,36,.12); border: 1px solid #fbbf24; color: #fbbf24; padding: .45rem .8rem; border-radius: 8px; font-weight: 700; display: inline-block; }
+.decision-DENY { background: rgba(248,113,113,.12); border: 1px solid #f87171; color: #f87171; padding: .45rem .8rem; border-radius: 8px; font-weight: 700; display: inline-block; }
+.risk-LOW { color: #34d399; font-weight: 700; }
+.risk-MEDIUM { color: #fbbf24; font-weight: 700; }
+.risk-HIGH, .risk-CRITICAL { color: #f87171; font-weight: 700; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -119,37 +117,32 @@ def _threshold_recommend():
     return best_operating_point()
 # Sidebar
 with st.sidebar:
-    st.markdown("### 🛡️ PayTrust AI")
-    st.caption("AI-agent payment safety layer • local prototype + real IEEE data")
-    st.divider()
+    st.markdown("### :material/security: PayTrust AI")
+    st.caption("Evidence-driven payment safety • local prototype + real IEEE data")
     nav = st.radio("Navigate", ["Dashboard","Agent Policy","Payment Request","Risk Assessment","AI Investigation","Decision Simulator","Payment History","Real World (IEEE)","Evaluation & Thresholds","Help & Glossary","Audit Log"], label_visibility="collapsed")
-    st.markdown("---")
     st.caption("Need help? → **Help & Glossary** explains every variable")
-    st.divider()
     st.markdown("**Environment**")
     st.code(f"{settings.ENVIRONMENT} • v{settings.APP_VERSION}", language="text")
     if _db_info.get("exists"):
-        st.success(f"SQLite • {_db_info.get('size_bytes',0):,} bytes", icon="✅")
-        with st.expander("DB inspect"):
+        st.success(f"SQLite • {_db_info.get('size_bytes',0):,} bytes", icon=":material/check_circle:")
+        with st.expander("DB inspect", icon=":material/database:"):
             st.json({k: v for k, v in _db_info.items() if k not in ("db_path",)})
     else:
-        st.error("DB not initialized", icon="⚠️")
+        st.error("DB not initialized", icon=":material/error:")
     warns = settings.validate_for_production()
     if warns:
-        with st.expander("⚠️ Config warnings"):
+        with st.expander("Config warnings", icon=":material/warning:"):
             for w in warns: st.warning(w)
-    st.divider()
     st.caption("Phases 1-16 ✓ production-minded local prototype")
     st.caption("Policy final • LLM advisory • Razorpay TEST MODE")
 
-st.markdown(f"""
-<div class="hero">
-  <h1>🛡️ {settings.APP_NAME} — Evidence-Driven Payment Safety</h1>
-  <p>Policy → Risk → Evidence → AI Investigation → <b>ALLOW / ASK_USER / DENY</b> → Payment (Test Mode)</p>
-</div>
-""", unsafe_allow_html=True)
-st.markdown('<span class="phase-badge">Phases 1-16 ✓</span><span class="phase-badge">Streamlit + SQLite</span><span class="phase-badge">Deterministic final</span><span class="phase-badge">LLM advisory</span><span class="phase-badge">SIMULATED estimates</span>', unsafe_allow_html=True)
-st.write("")
+st.title(f"{settings.APP_NAME}", icon=":material/verified_user:")
+st.caption("Policy → Risk → Evidence → AI Investigation → **ALLOW / ASK_USER / DENY** → Payment (Test Mode)")
+st.badge("Phases 1-16 ✓", icon=":material/check_circle:", color="green")
+st.badge("Deterministic final", icon=":material/gavel:", color="blue")
+st.badge("LLM advisory", icon=":material/psychology:", color="violet")
+st.badge("SIMULATED estimates", icon=":material/science:", color="orange")
+st.badge("Razorpay TEST MODE", icon=":material/lock:", color="gray")
 
 policy_engine = PolicyEngine()
 risk_engine = RiskEngine()
@@ -188,7 +181,7 @@ if nav == "Dashboard":
         rec = _recent_requests(10)
         if rec:
             df = pd.DataFrame(rec)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width="stretch", hide_index=True)
             st.caption("Structured logs include request_id, decision, risk_score, processing_ms — never secrets (core/logger.py redaction).")
         else:
             st.info("No requests yet — create one in Payment Request.", icon="ℹ️")
@@ -214,7 +207,7 @@ if nav == "Dashboard":
         st.caption("Observability: `core/metrics.py` + `core/logger.py` request_id + audit_logs. No API keys in logs.")
 
 elif nav == "Agent Policy":
-    st.subheader("Agent Policy — Deterministic Authorization")
+    st.subheader("Agent policy — deterministic authorization", icon=":material/rule:")
     st.caption("LLM never overrides. Parameterized SQL.")
     users, agents = _all_users_agents()
     with get_connection() as conn:
@@ -256,7 +249,7 @@ elif nav == "Agent Policy":
             st.success("Policy saved"); st.rerun()
 
 elif nav == "Payment Request":
-    st.subheader("Payment Request — Validate → Policy → Risk → Decision (with timing)")
+    st.subheader("Payment request — validate → policy → risk → decision", icon=":material/request_quote:")
     with st.expander("ℹ️ How to use this page + what each field means", expanded=False):
         st.markdown("""
         **How to use:** Pick a **User** (who pays), **Agent** (AI acting), **Merchant** (who receives), enter **Amount** and **Category**, then **Evaluate**. The system runs: `Pydantic validation → PolicyEngine → RiskEngine → DecisionEngine` in <100ms and stores the decision.
@@ -310,7 +303,7 @@ elif nav == "Payment Request":
                 st.markdown("**Risk factors**")
                 for f in risk_res["factors"]: st.markdown(f"• **{f['name']}** {f['severity']} +{f['score']}: {f['details']}")
             st.markdown("**Decision reasons**"); [st.markdown(f"• {r}") for r in dec["reasons"]]
-            if st.button("Run AI Investigation (advisory)"):
+            if st.button("Run AI Investigation (advisory)", icon=":material/psychology:"):
                 facts = build_facts(pr.to_db_dict(), pol_res, risk_res, dec)
                 ai_res = ai_engine.investigate(facts)
                 st.info(f"**AI:** {ai_res['explanation']}", icon="🤖")
@@ -319,7 +312,7 @@ elif nav == "Payment Request":
             st.error(f"Failed: {exc}")
 
 elif nav == "Risk Assessment":
-    st.subheader("Risk Assessment — Interactive (7 dims, 0-100)")
+    st.subheader("Risk assessment — interactive (7 dimensions, 0-100)", icon=":material/speed:")
     with st.expander("ℹ️ How to use + what each slider means", expanded=False):
         st.markdown("""
         **How to use:** Move sliders to simulate a payment and see risk add up. The engine sums 7 dims (see Help & Glossary → Risk & Decisions table). No ML yet — pure rules, so you can trace every point.
@@ -346,7 +339,7 @@ elif nav == "Risk Assessment":
         with st.expander("JSON"): st.json(res)
 
 elif nav == "AI Investigation":
-    st.subheader("AI Investigation — Advisory Only")
+    st.subheader("AI investigation — advisory only", icon=":material/psychology:")
     st.caption("Structured facts only. Provider: OpenRouter → Groq → Gemini → deterministic.")
     rec = _recent_requests(10)
     if not rec:
@@ -370,7 +363,7 @@ elif nav == "AI Investigation":
         dec_map = {"decision": dec.get("decision","UNKNOWN"), "risk_score": dec.get("risk_score",0), "risk_level": dec.get("risk_level","LOW"), "reasons": json.loads(dec.get("reasons","[]"))} if dec else {}
         facts = build_facts(pr, pol_res, risk_res, dec_map)
         st.json(facts)
-        if st.button("Investigate", type="primary"):
+        if st.button("Investigate", type="primary", icon=":material/psychology:"):
             with st.spinner("Contacting provider…"):
                 ai_res = ai_engine.investigate(facts)
             st.markdown(f"**Model:** `{ai_res['model']}` provider `{ai_res['provider']}` fallback={ai_res['fallback_used']} {ai_res['latency_ms']:.0f}ms")
@@ -383,7 +376,7 @@ elif nav == "AI Investigation":
         st.warning("Safety: deterministic final. AI is assistant.", icon="🔒")
 
 elif nav == "Decision Simulator":
-    st.subheader("Decision Simulator — Counterfactual (SIMULATED / ESTIMATED)")
+    st.subheader("Decision simulator — counterfactuals", icon=":material/compare_arrows:")
     st.caption("Not real financial forecasts. Derived from synthetic cost model.")
     rec = _recent_requests(10)
     if not rec:
@@ -418,20 +411,20 @@ elif nav == "Decision Simulator":
         st.success(f"**Recommended (SIMULATED): {sim['recommended']}**")
 
 elif nav == "Payment History":
-    st.subheader("Payment History")
+    st.subheader("Payment history", icon=":material/history:")
     filt = st.selectbox("Filter decision", ["All","ALLOW","ASK_USER","DENY"])
     rows = _recent_requests(100)
     if filt != "All": rows = [r for r in rows if r.get("decision")==filt]
     if rows:
         df = pd.DataFrame(rows)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width="stretch", hide_index=True)
         st.download_button("Download CSV (SIMULATED)", data=df.to_csv(index=False).encode("utf-8"), file_name="payment_history.csv", mime="text/csv")
     else: st.info("No history yet.", icon="ℹ️")
     if st.button("Generate Synthetic CSV (Phase 8)"):
         from data.synthetic import generate_synthetic_csv
         path, count = generate_synthetic_csv(n_normal=500, n_anomalies=50, seed=42)
         st.success(f"Generated {count} rows → {path}")
-        st.dataframe(pd.read_csv(path).head(20), use_container_width=True)
+        st.dataframe(pd.read_csv(path).head(20), width="stretch")
         with st.expander("Distributions"):
             from data.synthetic import verify_distributions
             st.json(verify_distributions(path))
@@ -444,7 +437,7 @@ elif nav == "Payment History":
             st.caption("ML is advisory — deterministic engines remain final. See evaluation/ml_report.json")
 
 elif nav == "Real World (IEEE)":
-    st.subheader("Real-World IEEE Fraud Detection — All 6 CSVs, Chunked, Max Features")
+    st.subheader("Real-world IEEE fraud detection — chunked pipeline", icon=":material/analytics:")
     st.caption("Production-grade pipeline: 590k train + 506k test + 144k/141k identity + 123 synthetic → PayTrust decisions")
     # All CSVs overview — professional table
     csv_data = [
@@ -455,7 +448,7 @@ elif nav == "Real World (IEEE)":
         {"File": "sample_submission.csv", "Rows": "506,691", "Cols": 2, "Size": "6 MB", "Use": "Template (TransactionID,isFraud)", "Pct": "100%"},
         {"File": "synthetic_transactions.csv", "Rows": "123", "Cols": 13, "Size": "15 KB", "Use": "PayTrust policy demo", "Pct": "100%"},
     ]
-    st.dataframe(pd.DataFrame(csv_data), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(csv_data), width="stretch", hide_index=True)
     st.caption("✓ All CSVs as per required folder `data/required csv/ieee-fraud-detection/` + synthetic — handled chunked (50k), never full load.")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -519,7 +512,7 @@ elif nav == "Real World (IEEE)":
                 df_fi = df_fi.sort_values("abs_coef", ascending=True)
                 st.bar_chart(df_fi.set_index("feature")["coef"])
                 with st.expander("Top 20 features"):
-                    st.dataframe(df_fi, use_container_width=True)
+                    st.dataframe(df_fi, width="stretch")
             # LightGBM if available
             if report.get("lightgbm"):
                 with st.expander("LightGBM (if available)"):
@@ -575,7 +568,7 @@ elif nav == "Real World (IEEE)":
                 st.line_chart(cdf.set_index("threshold")[["fraud_exposure", "false_positive_cost", "expected_total_cost"]])
                 st.caption("X-axis = fraud-probability threshold. Left chart: classification metrics. Right chart: SIMULATED costs (not financial forecasts).")
                 with st.expander("Raw sweep table (first 40 rows)"):
-                    st.dataframe(cdf.head(40), use_container_width=True, hide_index=True)
+                    st.dataframe(cdf.head(40), width="stretch", hide_index=True)
         except FileNotFoundError as exc:
             st.error(f"Threshold tool unavailable: {exc}")
         except Exception as exc:  # noqa: BLE001 — surface any tool error without crashing the page
@@ -669,7 +662,7 @@ elif nav == "Real World (IEEE)":
                     if Path("evaluation/submission.csv").exists():
                         df = pd.read_csv("evaluation/submission.csv", nrows=5)
                         st.success(f"Submission generated: {len(pd.read_csv('evaluation/submission.csv'))} rows")
-                        st.dataframe(df, use_container_width=True)
+                        st.dataframe(df, width="stretch")
                     else:
                         st.error("Submission not created — train first")
                 except Exception as e:
@@ -677,14 +670,14 @@ elif nav == "Real World (IEEE)":
     with colB:
         if Path("evaluation/submission.csv").exists():
             st.metric("Submission Rows", f"{len(pd.read_csv('evaluation/submission.csv')):,}")
-            st.dataframe(pd.read_csv("evaluation/submission.csv").head(10), use_container_width=True)
+            st.dataframe(pd.read_csv("evaluation/submission.csv").head(10), width="stretch")
             st.download_button("Download submission.csv", data=Path("evaluation/submission.csv").read_bytes(), file_name="submission.csv", mime="text/csv")
         else:
             st.info("No submission yet — generate from test CSVs.")
         st.caption("Also used: `synthetic_transactions.csv` (123 rows) for PayTrust policy demos — see Payment History → Generate Synthetic.")
 
 elif nav == "Evaluation & Thresholds":
-    st.subheader("Evaluation & Thresholds — Real IEEE Held-Out Test + SIMULATED Cost Trade-off")
+    st.subheader("Evaluation & thresholds — held-out IEEE test + SIMULATED cost trade-off", icon=":material/monitoring:")
     st.caption("Every number comes from actual artifacts on disk — nothing invented. Costs are SIMULATED / ESTIMATED (core/config.py), never forecasts.")
     preds_ready = Path("evaluation/ieee_test_predictions.parquet").exists()
     report_path = Path("evaluation/ieee_report.json")
@@ -735,7 +728,7 @@ elif nav == "Evaluation & Thresholds":
                 st.json(json.loads(Path("evaluation/ml_report.json").read_text()))
 
 elif nav == "Help & Glossary":
-    st.subheader("Help & Glossary — How to Use PayTrust AI + What Every Variable Means")
+    st.subheader("Help & glossary", icon=":material/help:")
     st.caption("New to PayTrust? Start here. Every field has a tooltip (hover the ⓘ) — this page explains all.")
     tab1, tab2, tab3, tab4 = st.tabs(["🏁 How to Use (5 Steps)", "📦 PayTrust Variables", "🏦 IEEE Variables", "⚠️ Risk & Decisions"])
     with tab1:
@@ -812,9 +805,9 @@ elif nav == "Help & Glossary":
         st.caption("Friction: ALLOW low, ASK medium, DENY high. Fraud exposure `p_fraud=score/100 * amount` (SIMULATED) in Decision Simulator.")
 
 elif nav == "Audit Log":
-    st.subheader("Audit Log — Verifiable Decisions + Webhook Tester")
+    st.subheader("Audit log — verifiable decisions + webhook tester", icon=":material/receipt:")
     logs = _audit_logs(100)
-    if logs: st.dataframe(pd.DataFrame(logs), use_container_width=True, hide_index=True)
+    if logs: st.dataframe(pd.DataFrame(logs), width="stretch", hide_index=True)
     else: st.info("No audit events yet.", icon="ℹ️")
     st.divider()
     st.markdown("**Razorpay Webhook Tester (TEST MODE, idempotent)**")
@@ -830,7 +823,7 @@ elif nav == "Audit Log":
         else: st.error(res.get("reason","rejected"))
     if st.button("Show Razorpay Events"):
         from services.razorpay_service import list_webhook_events
-        st.dataframe(pd.DataFrame(list_webhook_events()), use_container_width=True)
+        st.dataframe(pd.DataFrame(list_webhook_events()), width="stretch")
     st.divider()
     st.markdown("**Security Checklist**")
     from core.security import security_checklist
@@ -839,5 +832,4 @@ elif nav == "Audit Log":
     for k,v in chk.items():
         if not v.get("pass"): st.warning(f"{k}: {v}")
 
-st.divider()
 st.caption("PayTrust AI — production-minded local prototype. Deterministic final. LLM advisory. Razorpay TEST MODE. SIMULATED estimates labeled.")

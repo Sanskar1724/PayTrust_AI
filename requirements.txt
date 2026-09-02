@@ -1,7 +1,7 @@
 # PayTrust AI — Local Streamlit Prototype (Phase 1)
 # Python 3.11 / 3.12 — keep it lightweight, no Docker/Postgres required
 
-streamlit==1.39.0
+streamlit>=1.63,<2
 python-dotenv==1.0.1
 pydantic==2.7.4
 pydantic-settings==2.3.3
@@ -13,6 +13,7 @@ aiosqlite==0.20.0
 pandas>=2.2.0
 numpy>=1.26.4
 scikit-learn>=1.5.0
+plotly>=6.0
 scipy>=1.13.0
 joblib>=1.4.2
 pyarrow>=18.0.0   # parquet read/write (IEEE test predictions, train chunks, submission)
