@@ -9,7 +9,7 @@
 - **Streamlit app:** boots → health `200 ok` (`streamlit run app.py`)
 - **FastAPI REST:** boots → all 11 routes registered (`/health`, `/ready`, `/v1/evaluate`, `/v1/payments{,/id}`, `/v1/webhooks/razorpay`, `/v1/evaluation/metrics`, `/v1/threshold{,/curves,/recommend,/check}`)
 - **Real-world ML:** IEEE-CIS 590k trained in chunks; held-out temporal test 3,000 rows predictions committed → threshold decision tool
-- **Repo:** committed at `389ffd5` (includes `ai-payment-copilot` production track).
+- **Repo:** committed at HEAD (includes `ai-payment-copilot` production track + `FINAL_STATUS.md` + reproducible `evaluation/run_evaluation.py`).
 - **External readiness (new this session:** GitHub Actions CI (`.github/workflows/ci.yml`), README badges + external-resources table, `docs/DEMO.md` judge script, `requirements.txt` + `pyarrow` (parquet dep now declared(.
 
 ## The 4-phase plan (what the project is)

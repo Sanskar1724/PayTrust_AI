@@ -744,7 +744,7 @@ elif nav == "Help & Glossary":
         1. **Agent Policy** → Set rules for your agent (e.g., Shopping Assistant: daily 100k, max 60k, approval >30k, allow `electronics,books,travel`, block `gambling`). This is the law — LLM never overrides.
         2. **Payment Request** → Create a payment intent: `request_id` (unique), `user`/`agent`/`merchant`, `amount` (INR), `category` (must match allowlist), `agent_reason` (why agent wants to pay). Click **Evaluate** → you get Policy + Risk + Decision in <100ms.
         3. **Risk Assessment** → Play with sliders to see how risk adds up (amount, daily spent, frequency, violations). Helps you tune thresholds.
-        4. **AI Investigation** → Pick a past decision → **Investigate** → AI (gemma-3-27b free) explains *why* in plain English, using only your facts (no invention).
+        4. **AI Investigation** → Pick a past decision → **Investigate** → AI (gemma-4-31b free) explains *why* in plain English, using only your facts (no invention).
         5. **Decision Simulator** → See `What if ALLOW / ASK_USER / DENY?` with `SIMULATED` costs (fraud, friction, ops) — pick the cheapest safe option. For real data, go to **Real World (IEEE)** → Train → Predict → Submission.
         """)
         st.info("Tip: Hover any ⓘ next to a field for a 1-line meaning. Expand the tables below for full glossary.", icon="💡")

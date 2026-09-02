@@ -5,7 +5,27 @@
 **Production-minded local prototype** — runs with **Streamlit + SQLite + Python 3.11/3.12**, no Docker/Postgres/Redis required for Phases 1-10. Deterministic policy is final; LLM never overrides.
 ![MIT](https://img.shields.io/badge/License-MIT-green) ![Python](https://img.shields.io/badge/Python-3.11%7C3.12-blue) ![Streamlit](https://img.shields.io/badge/Streamlit-1.39-red) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-teal) ![scikit-learn](https://img.shields.io/badge/scikit--learn-1.5-orange) ![IEEE-CIS](https://img.shields.io/badge/dataset-IEEE--CIS%20590k-9cf) ![Tests](https://img.shields.io/badge/tests-128%20passed-brightgreen) ![CI](https://img.shields.io/github/actions/workflow/status/Sanskar1724/PayTrust_AI/ci.yml?branch=main)
 
+## Brief → Product Mapping (read this first, judges)
+
+The official brief (`../full_breif into.txt`) describes a *merchant payment-fraud risk platform*: payment events → risk → evidence → AI investigation → counterfactuals → **ALLOW / REVIEW / BLOCK** → human approval → audit. This product implements that exact pipeline, applied to the highest-stakes merchant-side abuse case: **an AI agent spending on a user's behalf**. Vocabulary and scope map as follows:
+
+| Brief concept | This product | Where |
+|---|---|---|
+| Payment/order events → validation | Payment request (Pydantic) + Razorpay TEST MODE webhook events | `models/payment_request.py`, `services/razorpay_service.py` |
+| Risk Intelligence (Rules + ML + behavior) | PolicyEngine (deterministic rules) + RiskEngine (7 behavioral dimensions) + IEEE-trained ML (threshold tool) | `engines/`, `models/` |
+| Evidence Collection | Factors (name/severity/score/details), policy violations, customer/agent history — facts only | `engines/risk_engine.py` |
+| AI Investigation (why suspicious?) | Advisory, fact-bound LLM explanation + concerns + review questions | `engines/ai_engine.py` |
+| Counterfactual Engine (ALLOW/REVIEW/BLOCK expected costs) | DecisionSimulator: fraud exposure, FP cost, ops cost, friction, expected total cost per action | `engines/decision_simulator.py` |
+| **ALLOW / REVIEW / BLOCK** | **ALLOW / ASK_USER / DENY** (ASK_USER ≡ REVIEW: human approval gate; DENY ≡ BLOCK) | `engines/decision_engine.py` |
+| Best Expected Decision | Min expected-total-cost recommendation, subject to hard safety guards (policy violation → DENY; never auto-block on low confidence) | `engines/decision_simulator.py` |
+| Human Approval | ASK_USER decision requires user approval before execution; audit-logged | `app.py`, `database/` |
+| Audit + Analytics | `audit_logs` (who/what/when/request_id/decision/risk/latency), metrics, Dashboard | `core/logger.py`, `core/metrics.py` |
+| Evaluation (precision/recall/F1/FPR/confusion, held-out) | Real IEEE-CIS temporal held-out test + reproducible harness | `evaluation/run_evaluation.py` |
+
+**Deliberate deviations (documented, not hidden):** local prototype uses Streamlit + SQLite instead of React + Postgres/Redis (the production stack exists in `../ai-payment-copilot/`); the incident-cluster/verification engines are roadmap items (see `FINAL_STATUS.md` §8, §11); the synthetic generator (550 rows) is a smoke test — real-data evidence comes from IEEE-CIS 590k.
+
 ## 30-Second Demo
+
 
 1. `streamlit run app.py` → Dashboard shows health, DB inspect, metrics.
 2. **Agent Policy** → default policy: Test User + Shopping Assistant, daily 100k, max 60k, approval >30k, allowed `electronics,books,travel`, blocked `gambling,financial_products`.

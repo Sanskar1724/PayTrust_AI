@@ -177,7 +177,13 @@ def test_evaluate_idempotent_retry():
         _safe_cleanup(tmp)
 
 
-def test_evaluate_with_ai_investigation_deterministic():
+def test_evaluate_with_ai_investigation_deterministic(monkeypatch):
+    # Hermetic: force the deterministic provider even if a real key exists in .env —
+    # this test must never depend on live LLM availability/rate limits.
+    from engines import ai_engine as ai_mod
+    monkeypatch.setattr(ai_mod.settings, "OPENROUTER_API_KEY", None)
+    monkeypatch.setattr(ai_mod.settings, "GROQ_API_KEY", None)
+    monkeypatch.setattr(ai_mod.settings, "GEMINI_API_KEY", None)
     tmp, dbp = _tmp_db()
     try:
         client = _client(dbp)

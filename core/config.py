@@ -47,7 +47,10 @@ class Settings(BaseSettings):
 
     # ── LLM Providers (priority: OpenRouter → Groq → Gemini → deterministic) ──
     OPENROUTER_API_KEY: Optional[str] = None
-    OPENROUTER_MODEL: str = "google/gemma-3-27b-it:free"
+    OPENROUTER_MODEL: str = "google/gemma-4-31b-it:free"
+    # Free-tier pools are congested — OpenRouter auto-routes to these when the
+    # primary returns 429 (comma-separated; "openrouter/free" = any free model).
+    OPENROUTER_FALLBACK_MODELS: str = "google/gemma-4-26b-a4b-it:free,openrouter/free"
     GROQ_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
     OLLAMA_BASE_URL: str = "http://localhost:11434"

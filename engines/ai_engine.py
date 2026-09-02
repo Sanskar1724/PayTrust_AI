@@ -128,31 +128,49 @@ class LLMProvider:
         raise NotImplementedError
 
 class OpenRouterProvider(LLMProvider):
-    def __init__(self, api_key: str, model: str = "openai/gpt-4o-mini"):
+    def __init__(self, api_key: str, model: str = "openai/gpt-4o-mini", fallbacks: Optional[list[str]] = None):
         super().__init__("openrouter", model)
         self.api_key = api_key
         self.url = "https://openrouter.ai/api/v1/chat/completions"
+        # Free-tier pools get congested — OpenRouter auto-routes down this chain on 429.
+        self.fallbacks = [m.strip() for m in (fallbacks or []) if m.strip()]
 
     def call(self, prompt: str):
         if self.is_circuit_open():
             return "", 0, 0, "circuit_open"
         start = time.time()
-        try:
-            headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json", "HTTP-Referer": "https://paytrust.ai", "X-Title": "PayTrust AI"}
-            payload = {"model": self.model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1, "max_tokens": 800}
-            with httpx.Client(timeout=self.timeout) as client:
-                resp = client.post(self.url, headers=headers, json=payload)
-                resp.raise_for_status()
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-                tokens = data.get("usage", {}).get("total_tokens", 0)
-                latency = (time.time() - start) * 1000
-                self.record_success()
-                return content, tokens, latency, None
-        except Exception as exc:
-            self.record_failure()
-            latency = (time.time() - start) * 1000
-            return "", 0, latency, str(exc)[:300]
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json", "HTTP-Referer": "https://paytrust.ai", "X-Title": "PayTrust AI"}
+        payload: dict[str, Any] = {"model": self.model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1, "max_tokens": 800}
+        if self.fallbacks:
+            payload["models"] = [self.model, *self.fallbacks]
+        # One polite client-side retry on 429 (upstream pools recover in seconds).
+        for attempt in range(2):
+            try:
+                with httpx.Client(timeout=self.timeout) as client:
+                    resp = client.post(self.url, headers=headers, json=payload)
+                    if resp.status_code == 429 and attempt == 0:
+                        # Respect Retry-After when provided, else short backoff (SIM: bounded wait).
+                        wait = float(resp.headers.get("retry-after", "3") or 3)
+                        time.sleep(min(wait, 8.0))
+                        continue
+                    resp.raise_for_status()
+                    data = resp.json()
+                    content = data["choices"][0]["message"]["content"]
+                    tokens = data.get("usage", {}).get("total_tokens", 0)
+                    latency = (time.time() - start) * 1000
+                    self.record_success()
+                    return content, tokens, latency, None
+            except Exception as exc:
+                if attempt == 1:
+                    self.record_failure()
+                    latency = (time.time() - start) * 1000
+                    return "", 0, latency, str(exc)[:300]
+                # Non-429 errors: no point retrying immediately — surface on 2nd pass.
+                if not (isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429):
+                    self.record_failure()
+                    latency = (time.time() - start) * 1000
+                    return "", 0, latency, str(exc)[:300]
+        return "", 0, (time.time() - start) * 1000, "unreachable"
 
 class GroqProvider(LLMProvider):
     def __init__(self, api_key: str, model: str = "llama-3.1-70b-versatile"):
@@ -286,13 +304,11 @@ class AIEngine:
 
     def _init_providers(self):
         if settings.OPENROUTER_API_KEY:
-            # Use free model from .env — user requested google/gemma-3-27b-it:free (alias for gemma-4-26b)
-            model = getattr(settings, "OPENROUTER_MODEL", "google/gemma-3-27b-it:free")
-            # Normalize user typo: gemma-4-26b → gemma-3-27b (both are free tier)
-            if "gemma-4-26b" in model:
-                # OpenRouter actually lists google/gemma-3-27b-it:free as free, keep as is but allow override
-                pass
-            self.providers.append(OpenRouterProvider(settings.OPENROUTER_API_KEY, model=model))
+            model = getattr(settings, "OPENROUTER_MODEL", "google/gemma-4-31b-it:free")
+            fallbacks = [
+                m.strip() for m in getattr(settings, "OPENROUTER_FALLBACK_MODELS", "").split(",") if m.strip()
+            ]
+            self.providers.append(OpenRouterProvider(settings.OPENROUTER_API_KEY, model=model, fallbacks=fallbacks))
         if settings.GROQ_API_KEY:
             self.providers.append(GroqProvider(settings.GROQ_API_KEY))
         if settings.GEMINI_API_KEY:

@@ -40,6 +40,10 @@ models/*.pkl
 models/*.joblib
 *.h5
 
+# ── Local debug scratch (inspect/train/LLM probes) ──
+_*.py
+_*.txt
+
 # ── Logs ──
 *.log
 logs/
