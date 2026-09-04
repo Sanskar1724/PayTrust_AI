@@ -21,12 +21,15 @@ pyarrow>=18.0.0   # parquet read/write (IEEE test predictions, train chunks, sub
 # HTTP clients for AI providers + Razorpay
 httpx==0.27.0
 requests==2.32.3
-openai==1.35.10
-google-generativeai==0.7.2
+# LLM SDKs are NOT required: engines/ai_engine.py calls OpenRouter / Groq /
+# Gemini over plain HTTP via httpx (no openai / google-generativeai import
+# anywhere). Commented out to fix protobuf<5 vs Streamlit>=5.26 conflict.
+# openai==1.35.10
+# google-generativeai==0.8.6
 
 # FastAPI HTTP service layer (Phase A — exposes tested engines as a REST service)
-fastapi==0.111.0
-uvicorn[standard]==0.30.1
+fastapi>=0.115
+uvicorn[standard]>=0.30
 
 # Auth / Security (test-mode only)
 python-jose[cryptography]==3.3.0
