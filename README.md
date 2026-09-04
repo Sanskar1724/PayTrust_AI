@@ -80,7 +80,7 @@ Repo root **is** this folder, so the main file path is just `app.py`.
 
 1. Push to GitHub (IEEE CSVs, `.env`, `*.db`, `*.pkl` are already gitignored — nothing secret or oversized leaves your machine).
 2. Go to `share.streamlit.io` → **New app** → pick repo/branch → **Main file path:** `app.py`.
-3. **Advanced settings → Python version:** `3.12` (exact pins like `pydantic==2.7.4` predate 3.13 wheels).
+3. **Advanced settings → Python version:** `3.12` recommended (`3.14` also works — pins are floor-only so pip picks compatible wheels).
 4. **Settings → Secrets** — paste from `.streamlit/secrets.toml.example` with real values (at minimum `OPENROUTER_API_KEY` for live AI; Razorpay `rzp_test_*` for TEST MODE). Save → Reboot.
 5. Deploy. No `.env`, Docker, or database setup needed.
 

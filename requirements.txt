@@ -3,8 +3,8 @@
 
 streamlit>=1.55,<2
 python-dotenv==1.0.1
-pydantic==2.7.4
-pydantic-settings==2.3.3
+pydantic>=2.7.4
+pydantic-settings>=2.3.3
 
 # Database — SQLite (stdlib) + aiosqlite for async where needed
 aiosqlite==0.20.0
