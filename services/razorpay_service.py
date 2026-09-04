@@ -64,7 +64,11 @@ def is_duplicate_event(event_id: str, payload_hash_val: str, db_path: Path | Non
     Returns (is_duplicate, existing_status). If event_id exists, it's duplicate.
     Payload hash mismatch is logged but still treated as duplicate (do not reprocess).
     """
-    conn = get_connection(db_path)
+    try:
+        conn = get_connection(db_path)
+    except Exception as exc:
+        logger.warning(f"DB unavailable for idempotency check: {exc}")
+        return False, ""
     try:
         cur = conn.cursor()
         cur.execute("SELECT payload_hash, status FROM razorpay_events WHERE event_id = ?", (event_id,))
@@ -75,7 +79,10 @@ def is_duplicate_event(event_id: str, payload_hash_val: str, db_path: Path | Non
             return True, row["status"]
         return False, ""
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 def record_event(
     event_id: str,
@@ -97,7 +104,10 @@ def record_event(
         row = cur.fetchone()
         return dict(row) if row else {}
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 def mark_event_processed(event_id: str, status: str = "PROCESSED", error: str | None = None, db_path: Path | None = None):
     conn = get_connection(db_path)
@@ -109,7 +119,10 @@ def mark_event_processed(event_id: str, status: str = "PROCESSED", error: str | 
         )
         conn.commit()
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 # ── Webhook handler (called by Streamlit or API) ──
 
@@ -135,9 +148,12 @@ def handle_webhook(raw_body: bytes, signature: str, db_path: Path | None = None)
     # Try extract payment id from Razorpay payload shape
     payment_id = None
     try:
-        payment_id = data.get("payload", {}).get("payment", {}).get("entity", {}).get("id")
+        payload = data.get("payload") or {}
+        payment = payload.get("payment") or {}
+        order = payload.get("order") or {}
+        payment_id = (payment.get("entity") or {}).get("id")
         if not payment_id:
-            payment_id = data.get("payload", {}).get("order", {}).get("entity", {}).get("id")
+            payment_id = (order.get("entity") or {}).get("id")
     except Exception:
         pass
 
@@ -156,8 +172,13 @@ def handle_webhook(raw_body: bytes, signature: str, db_path: Path | None = None)
 
     # 5. Structured audit (no secrets)
     from database.database import get_connection as _gc
-    conn = _gc(db_path)
     try:
+        conn = _gc(db_path)
+    except Exception:
+        conn = None
+    try:
+        if conn is None:
+            raise RuntimeError("no DB connection for audit log")
         cur = conn.cursor()
         cur.execute(
             "INSERT INTO audit_logs (request_id, event_type, actor, action, metadata) VALUES (?,?,?,?,?)",
@@ -167,7 +188,11 @@ def handle_webhook(raw_body: bytes, signature: str, db_path: Path | None = None)
     except Exception:
         pass
     finally:
-        conn.close()
+        try:
+            if conn is not None:
+                conn.close()
+        except Exception:
+            pass
 
     logger.info(f"Webhook processed {event_id} type={event_type}")
     return {"status": "processed", "event_id": event_id, "event_type": event_type}
@@ -190,8 +215,8 @@ def create_test_order(amount: int, currency: str = "INR", receipt: str | None = 
             "simulated": True,
             "disclaimer": "SIMULATED — no real money, TEST MODE only",
         }
-    key_id, key_secret = _require_test_keys()
     try:
+        key_id, key_secret = _require_test_keys()
         with httpx.Client(timeout=10.0, auth=(key_id, key_secret)) as client:
             resp = client.post(
                 f"{RAZORPAY_API_BASE}/orders",
@@ -208,20 +233,33 @@ def create_test_order(amount: int, currency: str = "INR", receipt: str | None = 
 def fetch_payment(payment_id: str) -> dict[str, Any]:
     if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
         return {"id": payment_id, "status": "simulated", "simulated": True}
-    key_id, key_secret = _require_test_keys()
+    try:
+        key_id, key_secret = _require_test_keys()
+    except Exception as exc:
+        logger.warning(f"Razorpay keys invalid: {exc} — returning SIMULATED")
+        return {"id": payment_id, "status": "simulated", "error": str(exc)[:200], "simulated": True}
     with httpx.Client(timeout=10.0, auth=(key_id, key_secret)) as client:
         resp = client.get(f"{RAZORPAY_API_BASE}/payments/{payment_id}")
         resp.raise_for_status()
         return resp.json()
 
 def list_webhook_events(limit: int = 20, db_path: Path | None = None) -> list[dict[str, Any]]:
-    conn = get_connection(db_path)
+    try:
+        conn = get_connection(db_path)
+    except Exception:
+        return []
     try:
         cur = conn.cursor()
         cur.execute("SELECT event_id, event_type, payment_id, status, received_at, processed_at FROM razorpay_events ORDER BY received_at DESC LIMIT ?", (limit,))
         return [dict(r) for r in cur.fetchall()]
+    except Exception:
+        # Fresh DB without razorpay_events table yet — Audit Log page must not crash.
+        return []
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 # ── Helper for local tunnel instructions ──
 

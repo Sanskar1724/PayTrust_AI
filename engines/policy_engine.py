@@ -276,6 +276,8 @@ class PolicyEngine:
                 "requires_approval": pure.get("requires_approval", False),
                 "violations": violations,
                 "reasons": reasons,
+                "policy": None,
+                "daily_spent": daily_spent,
             }
 
         pure = self.evaluate(

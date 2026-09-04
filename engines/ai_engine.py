@@ -26,10 +26,15 @@ settings = get_settings()
 
 # ── Facts builder ──
 
-def build_facts(payment: dict[str, Any], policy_result: dict[str, Any], risk_result: dict[str, Any], decision: dict[str, Any]) -> dict[str, Any]:
+def build_facts(payment: dict[str, Any] | None, policy_result: dict[str, Any] | None, risk_result: dict[str, Any] | None, decision: dict[str, Any] | None) -> dict[str, Any]:
     """
     Structured facts — the ONLY input to LLM. No raw PII, no free text invention.
+    All args are optional-dict guarded so callers passing None never crash.
     """
+    payment = payment or {}
+    policy_result = policy_result or {}
+    risk_result = risk_result or {}
+    decision = decision or {}
     return {
         "transaction": {
             "request_id": payment.get("request_id"),

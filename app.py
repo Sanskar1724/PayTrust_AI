@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
 
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 
 from core.config import get_settings
 from core.logger import configure_root_logging, get_logger, new_request_id
@@ -186,7 +187,7 @@ if nav == "Dashboard":
         else:
             st.info("No requests yet — create one in Payment Request.", icon="ℹ️")
         # ML report preview
-        ml_report = Path("evaluation/ml_report.json")
+        ml_report = ROOT / "evaluation/ml_report.json"
         if ml_report.exists():
             with st.expander("Optional ML Report (synthetic)"):
                 st.json(json.loads(ml_report.read_text()))
@@ -266,7 +267,7 @@ elif nav == "Payment Request":
         with c1:
             req_id = st.text_input("request_id", value=f"req_{uuid.uuid4().hex[:8]}", help="Unique ID 6-64 chars a-z,0-9,-,_ . Used for idempotency — same ID won't double-charge. Auto-filled.")
             sel_u = st.selectbox("User", list(user_map.keys()), help="Who pays? Must exist. Determines which policy (daily 100k, max 60k) applies.")
-            sel_a = st.selectbox("Agent", list(user_map.keys()) if False else list(agent_map.keys()), help="Which AI is acting? Must be authorized for this user (agent_policies). Unauthorized → DENY.")
+            sel_a = st.selectbox("Agent", list(agent_map.keys()), help="Which AI is acting? Must be authorized for this user (agent_policies). Unauthorized → DENY.")
         with c2:
             sel_m = st.selectbox("Merchant", list(merch_map.keys()), help="Who receives money? Category from merchant, but you choose category for this payment. New merchant → higher risk.")
             amount = st.number_input("Amount (INR)", min_value=1, value=25000, step=500, help="How much? ≥1. >30k → ASK_USER, >60k → DENY, + daily 100k check. In INR.")
@@ -389,7 +390,7 @@ elif nav == "AI Investigation":
                 st.markdown("**Review questions**")
                 with st.container(border=True):
                     for q in ai_res.get("review_questions",[]): st.markdown(f"• {q}")
-            st.progress(ai_res.get("confidence",0)/100)
+            st.progress(float(ai_res.get("confidence",0)))
             st.caption(f"Confidence: {ai_res.get('confidence',0):.0%}")
             with st.expander("Full AI response (JSON)", icon=":material/data_object:"): st.json(ai_res)
         st.warning("Safety: deterministic final. AI is assistant.", icon="🔒")
@@ -402,7 +403,8 @@ elif nav == "Decision Simulator":
         st.info("Create a Payment Request first.", icon="ℹ️")
     else:
         opts = {f"{r['request_id']} — {r['decision']}": r["request_id"] for r in rec}
-        rid = st.selectbox("Payment", list(opts.keys()), key="sim")
+        sel = st.selectbox("Payment", list(opts.keys()), key="sim")
+        rid = opts[sel]
         with get_connection() as conn:
             cur = conn.cursor()
             cur.execute("SELECT * FROM payment_requests WHERE request_id=?", (rid,))
@@ -451,12 +453,15 @@ elif nav == "Payment History":
             from data.synthetic import verify_distributions
             st.json(verify_distributions(path))
     # ML train
-    if Path("data/synthetic_transactions.csv").exists():
+    if (ROOT / "data/synthetic_transactions.csv").exists():
         if st.button("Train Optional ML (Phase 12)"):
-            from models.ml_risk import train_evaluate
-            res = train_evaluate("data/synthetic_transactions.csv", seed=42, model_out="models/risk_model.pkl")
-            st.json(res)
-            st.caption("ML is advisory — deterministic engines remain final. See evaluation/ml_report.json")
+            try:
+                from models.ml_risk import train_evaluate
+                res = train_evaluate(str(ROOT / "data/synthetic_transactions.csv"), seed=42, model_out=str(ROOT / "models/risk_model.pkl"))
+                st.json(res)
+                st.caption("ML is advisory — deterministic engines remain final. See evaluation/ml_report.json")
+            except ValueError as exc:
+                st.error(f"Not enough synthetic data: {exc} — generate more rows first.")
 
 elif nav == "Real World (IEEE)":
     st.subheader("Real-world IEEE fraud detection — chunked pipeline", icon=":material/analytics:")
@@ -493,15 +498,15 @@ elif nav == "Real World (IEEE)":
         """)
         st.code("python -m models.train_ieee_chunked --nrows 20000 --chunksize 10000 --seed 42  # quick demo\npython -m models.train_ieee_chunked --full  # 590k (slower)", language="bash")
     # Training status
-    report_path = Path("evaluation/ieee_report.json")
-    model_path = Path("models/ieee_model.pkl")
+    report_path = ROOT / "evaluation/ieee_report.json"
+    model_path = ROOT / "models/ieee_model.pkl"
     c1, c2 = st.columns([1,2])
     with c1:
         if st.button("Train on 20k sample (quick)", type="primary"):
             with st.spinner("Processing 20k in 2 chunks + training LogisticRegression..."):
                 try:
                     import subprocess, sys
-                    result = subprocess.run([sys.executable, "-m", "models.train_ieee_chunked", "--nrows", "20000", "--chunksize", "10000", "--seed", "42"], capture_output=True, text=True, timeout=300)
+                    result = subprocess.run([sys.executable, "-m", "models.train_ieee_chunked", "--nrows", "20000", "--chunksize", "10000", "--seed", "42"], capture_output=True, text=True, timeout=300, cwd=str(ROOT))
                     st.code(result.stdout[-2000:])
                     if result.stderr:
                         st.warning(result.stderr[-1000:])
@@ -545,7 +550,7 @@ elif nav == "Real World (IEEE)":
     st.divider()
     st.markdown("**Threshold Decision Tool — choose your operating point (real IEEE held-out test)**")
     st.caption("Track 02 rubric: a merchant picks *where* to draw the line and sees live precision / recall / FPR / confusion + the SIMULATED cost trade-off (fraud exposure vs false-positive cost). No fake numbers — reads `evaluation/ieee_test_predictions.parquet` saved from the actual held-out test.")
-    preds_path = Path("evaluation/ieee_test_predictions.parquet")
+    preds_path = ROOT / "evaluation/ieee_test_predictions.parquet"
     if not preds_path.exists():
         st.info("No test predictions yet — run training (above) to enable the threshold tool.", icon="⏳")
     else:
@@ -653,7 +658,10 @@ elif nav == "Real World (IEEE)":
     st.caption("Maps IEEE `TransactionAmt` (USD→INR x83), `ProductCD`→category, `card1`→user, `addr1`→region → PayTrust `PaymentRequest` → Policy/Risk/Decision")
     if st.button("Show Real IEEE → PayTrust Example (from train_transaction.csv)"):
         import csv as _csv
-        p = Path("data/required csv/ieee-fraud-detection/train_transaction.csv")
+        p = ROOT / "data/required csv/ieee-fraud-detection/train_transaction.csv"
+        if not p.exists():
+            st.error(f"CSV not found: {p} — place IEEE files under data/required csv/ieee-fraud-detection/.")
+            st.stop()
         with open(p, encoding="utf-8") as f:
             reader = _csv.DictReader(f)
             row = next(reader)
@@ -677,23 +685,30 @@ elif nav == "Real World (IEEE)":
             with st.spinner("Predicting 506k test in 10 chunks... (30-60s)"):
                 try:
                     import subprocess, sys
-                    result = subprocess.run([sys.executable, "-m", "models.predict_ieee", "--model", "models/ieee_model.pkl", "--out", "evaluation/submission.csv"], capture_output=True, text=True, timeout=600)
+                    result = subprocess.run([sys.executable, "-m", "models.predict_ieee", "--model", str(ROOT / "models/ieee_model.pkl"), "--out", str(ROOT / "evaluation/submission.csv")], capture_output=True, text=True, timeout=600, cwd=str(ROOT))
                     st.code(result.stdout[-3000:])
                     if result.stderr:
                         st.warning(result.stderr[-1500:])
-                    if Path("evaluation/submission.csv").exists():
-                        df = pd.read_csv("evaluation/submission.csv", nrows=5)
-                        st.success(f"Submission generated: {len(pd.read_csv('evaluation/submission.csv'))} rows")
+                    sub_path = ROOT / "evaluation/submission.csv"
+                    if sub_path.exists():
+                        df = pd.read_csv(sub_path, nrows=5)
+                        with open(sub_path, encoding="utf-8") as _f:
+                            total_rows = sum(1 for _ in _f) - 1
+                        st.success(f"Submission generated: {total_rows:,} rows")
                         st.dataframe(df, width="stretch")
                     else:
                         st.error("Submission not created — train first")
                 except Exception as e:
                     st.error(f"Failed: {e}")
     with colB:
-        if Path("evaluation/submission.csv").exists():
-            st.metric("Submission Rows", f"{len(pd.read_csv('evaluation/submission.csv')):,}")
-            st.dataframe(pd.read_csv("evaluation/submission.csv").head(10), width="stretch")
-            st.download_button("Download submission.csv", data=Path("evaluation/submission.csv").read_bytes(), file_name="submission.csv", mime="text/csv")
+        sub_path = ROOT / "evaluation/submission.csv"
+        if sub_path.exists():
+            df_head = pd.read_csv(sub_path, nrows=10)
+            with open(sub_path, encoding="utf-8") as _f:
+                total_rows = sum(1 for _ in _f) - 1
+            st.metric("Submission Rows", f"{total_rows:,}")
+            st.dataframe(df_head, width="stretch")
+            st.download_button("Download submission.csv", data=sub_path.read_bytes(), file_name="submission.csv", mime="text/csv")
         else:
             st.info("No submission yet — generate from test CSVs.")
         st.caption("Also used: `synthetic_transactions.csv` (123 rows) for PayTrust policy demos — see Payment History → Generate Synthetic.")
@@ -701,8 +716,8 @@ elif nav == "Real World (IEEE)":
 elif nav == "Evaluation & Thresholds":
     st.subheader("Evaluation & thresholds — held-out IEEE test + SIMULATED cost trade-off", icon=":material/monitoring:")
     st.caption("Every number comes from actual artifacts on disk — nothing invented. Costs are SIMULATED / ESTIMATED (core/config.py), never forecasts.")
-    preds_ready = Path("evaluation/ieee_test_predictions.parquet").exists()
-    report_path = Path("evaluation/ieee_report.json")
+    preds_ready = (ROOT / "evaluation/ieee_test_predictions.parquet").exists()
+    report_path = ROOT / "evaluation/ieee_report.json"
     with st.container(horizontal=True):
         st.metric("Held-out test rows", f"{len(_load_preds_df()):,}" if preds_ready else "—", border=True)
         st.metric("Test predictions", "ready" if preds_ready else "missing", border=True)
@@ -763,9 +778,9 @@ elif nav == "Evaluation & Thresholds":
                                    xaxis={"title": "Threshold p", "gridcolor": "#1E293B"}, yaxis={"title": "INR (SIMULATED)", "gridcolor": "#1E293B"})
             st.plotly_chart(cost_fig, width="stretch", key="eval_cost_curve")
             st.caption("X-axis = fraud-probability threshold. Top: classification metrics. Bottom: SIMULATED costs. Dashed = recommended, solid white = your slider.")
-        if Path("evaluation/ml_report.json").exists():
+        if (ROOT / "evaluation/ml_report.json").exists():
             with st.expander("Synthetic demo model report (explicitly NOT production performance)"):
-                st.json(json.loads(Path("evaluation/ml_report.json").read_text()))
+                st.json(json.loads((ROOT / "evaluation/ml_report.json").read_text()))
 
 elif nav == "Help & Glossary":
     st.subheader("Help & glossary", icon=":material/help:")

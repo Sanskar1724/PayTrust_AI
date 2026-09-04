@@ -41,11 +41,12 @@ try:
 except Exception:
     HAS_LGB = False
 
-TRAIN_TRANS = Path("data/required csv/ieee-fraud-detection/train_transaction.csv")
-TRAIN_ID = Path("data/required csv/ieee-fraud-detection/train_identity.csv")
-PROCESSED_DIR = Path("data/processed")
-MODEL_PATH = Path("models/ieee_model.pkl")
-REPORT_PATH = Path("evaluation/ieee_report.json")
+_ROOT = Path(__file__).resolve().parents[1]
+TRAIN_TRANS = _ROOT / "data/required csv/ieee-fraud-detection/train_transaction.csv"
+TRAIN_ID = _ROOT / "data/required csv/ieee-fraud-detection/train_identity.csv"
+PROCESSED_DIR = _ROOT / "data/processed"
+MODEL_PATH = _ROOT / "models/ieee_model.pkl"
+REPORT_PATH = _ROOT / "evaluation/ieee_report.json"
 
 # --- Feature lists (max but manageable) ---
 C_COLS = [f"C{i}" for i in range(1,15)]

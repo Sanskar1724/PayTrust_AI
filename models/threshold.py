@@ -54,6 +54,8 @@ def metrics_at(threshold: float, df: pd.DataFrame | None = None, settings=None) 
     t = float(threshold)
     if not 0.0 <= t <= 1.0:
         raise ValueError("threshold must be in [0,1]")
+    if "prob" not in data.columns or "isFraud" not in data.columns:
+        raise ValueError("predictions are missing required columns 'prob'/'isFraud'")
     prob = data["prob"].astype(float).to_numpy()
     y = data["isFraud"].astype(int).to_numpy()
     pred = (prob >= t).astype(int)

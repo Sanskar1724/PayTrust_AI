@@ -64,9 +64,12 @@ def simulate(
         "disclaimer": "SIMULATED / ESTIMATED — not real financial forecast"
       }
     """
-    amount = int(payment.get("amount", 0))
-    risk_score = int(risk_result.get("risk_score", 0))
-    violations = policy_result.get("violations", []) or []
+    payment = payment or {}
+    risk_result = risk_result or {}
+    policy_result = policy_result or {}
+    amount = int((payment or {}).get("amount", 0))
+    risk_score = int((risk_result or {}).get("risk_score", 0))
+    violations = (policy_result or {}).get("violations", []) or []
     has_violation = len(violations) > 0
 
     # Fraud probability from risk score (0-100 → 0-1), capped

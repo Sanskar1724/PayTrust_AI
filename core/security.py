@@ -78,7 +78,7 @@ def assert_no_secrets_in_db(db_path: Path | None = None) -> list[str]:
             cur.execute(f"PRAGMA table_info({t})")
             for _, col, typ, _, _, _ in cur.fetchall():
                 lc = col.lower()
-                if "api_key" in lc or "secret" in lc and col != "password_hash":
+                if "api_key" in lc or ("secret" in lc and col != "password_hash"):
                     # password_hash is ok, but api_key/secret columns are not
                     if "api_key" in lc or lc == "secret" or "webhook_secret" in lc:
                         issues.append(f"{t}.{col}")

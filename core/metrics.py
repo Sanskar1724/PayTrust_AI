@@ -11,7 +11,16 @@ from typing import Any
 from database.database import get_connection
 
 def get_dashboard_metrics(db_path: Path | None = None) -> dict[str, Any]:
-    conn = get_connection(db_path)
+    try:
+        conn = get_connection(db_path)
+    except Exception:
+        # No DB yet (fresh clone) — dashboard shows zeros instead of crashing.
+        return {
+            "total_requests": 0, "total_decisions": 0, "by_decision": {},
+            "avg_risk": 0.0, "max_risk": 0, "high_risk_count": 0,
+            "policy_violations": 0, "ai_failures": 0,
+            "razorpay_events": {"total": 0, "processed": 0},
+        }
     try:
         cur = conn.cursor()
         # Totals

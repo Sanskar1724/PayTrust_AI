@@ -144,6 +144,8 @@ CREATE INDEX IF NOT EXISTS idx_payment_requests_user ON payment_requests(user_id
 CREATE INDEX IF NOT EXISTS idx_payment_requests_agent ON payment_requests(agent_id);
 CREATE INDEX IF NOT EXISTS idx_payment_requests_created ON payment_requests(created_at);
 CREATE INDEX IF NOT EXISTS idx_risk_request ON risk_assessments(request_id);
+-- One assessment per payment: dedupe for INSERT OR REPLACE semantics used by app/api.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_risk_request ON risk_assessments(request_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_decision ON decisions(decision);
 CREATE INDEX IF NOT EXISTS idx_audit_request ON audit_logs(request_id);
 """
@@ -157,14 +159,45 @@ def get_db_path() -> Path:
     return p
 
 
+class _ManagedConnection:
+    """Thin wrapper: `with get_connection() as conn` now CLOSES on exit.
+
+    (Raw sqlite3.Connection.__exit__ only commits — it never closes the fd,
+    so every `with get_connection() as conn:` in app.py/api leaked descriptors
+    into 'database is locked' (WAL). This wrapper closes on __exit__ while
+    proxying everything else, so all existing call sites are fixed at once.
+    Direct `conn = get_connection()` use is unaffected — call .close() as before.)
+    """
+
+    def __init__(self, conn: sqlite3.Connection):
+        object.__setattr__(self, "_conn", conn)
+
+    def __enter__(self) -> sqlite3.Connection:
+        return object.__getattribute__(self, "_conn")
+
+    def __exit__(self, *exc_info) -> bool:
+        try:
+            object.__getattribute__(self, "_conn").close()
+        except Exception:
+            pass
+        return False
+
+    def __getattr__(self, name: str):
+        return getattr(object.__getattribute__(self, "_conn"), name)
+
+
 def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
-    """Return a new sqlite3 connection with sensible defaults."""
+    """Return a new sqlite3 connection with sensible defaults.
+
+    Safe to use as `with get_connection() as conn:` (auto-closes) or
+    `conn = get_connection()` + explicit `conn.close()`.
+    """
     path = db_path if db_path is not None else get_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), check_same_thread=False, timeout=10.0)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON;")
-    return conn
+    raw = sqlite3.connect(str(path), check_same_thread=False, timeout=10.0)
+    raw.row_factory = sqlite3.Row
+    raw.execute("PRAGMA foreign_keys=ON;")
+    return _ManagedConnection(raw)  # type: ignore[return-value]
 
 
 @contextmanager
@@ -193,6 +226,15 @@ def init_db(seed: bool = True, db_path: Path | None = None) -> dict:
     try:
         conn.executescript(_SCHEMA)
         conn.commit()
+        # Migrate existing DBs: dedupe risk_assessments (keep latest) before UNIQUE index enforces it.
+        try:
+            conn.execute(
+                "DELETE FROM risk_assessments WHERE id NOT IN "
+                "(SELECT MAX(id) FROM risk_assessments GROUP BY request_id)"
+            )
+            conn.commit()
+        except Exception:
+            pass
 
         if seed:
             conn.execute(

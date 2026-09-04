@@ -224,13 +224,14 @@ class RiskEngine:
             context["daily_spent"] = 0
 
         # Frequency: count payment_requests for user in last 60 minutes
+        # NOTE: created_at is stored as 'YYYY-MM-DDTHH:MM:SSZ' — normalize T/Z for SQLite datetime().
+        conn = None
         try:
             from database.database import get_connection
             conn = get_connection(db_path)
             cur = conn.cursor()
-            # Use created_at comparison — stored as ISO8601 UTC
             cur.execute(
-                "SELECT COUNT(*) FROM payment_requests WHERE user_id = ? AND datetime(created_at) >= datetime('now', '-1 hour')",
+                "SELECT COUNT(*) FROM payment_requests WHERE user_id = ? AND datetime(replace(replace(created_at,'T',' '),'Z','')) >= datetime('now', '-1 hour')",
                 (user_id,),
             )
             context["transactions_last_hour"] = int(cur.fetchone()[0])
@@ -244,10 +245,15 @@ class RiskEngine:
             else:
                 context["is_new_merchant"] = True
             context["is_new_user"] = context["user_total_txns"] == 0
-            conn.close()
         except Exception as exc:
             logger.warning(f"Risk context DB fallback: {exc}")
             # keep defaults
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
         # Merchant category/tier enrichment
         try:

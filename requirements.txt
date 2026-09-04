@@ -1,7 +1,7 @@
 # PayTrust AI — Local Streamlit Prototype (Phase 1)
 # Python 3.11 / 3.12 — keep it lightweight, no Docker/Postgres required
 
-streamlit>=1.63,<2
+streamlit>=1.55,<2
 python-dotenv==1.0.1
 pydantic==2.7.4
 pydantic-settings==2.3.3
@@ -29,6 +29,7 @@ requests==2.32.3
 
 # FastAPI HTTP service layer (Phase A — exposes tested engines as a REST service)
 fastapi>=0.115
+starlette>=0.37  # explicit: api/security.py imports BaseHTTPMiddleware from starlette
 uvicorn[standard]>=0.30
 
 # Auth / Security (test-mode only)

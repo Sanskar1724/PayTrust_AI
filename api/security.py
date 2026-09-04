@@ -42,8 +42,12 @@ def api_key_for(settings_obj=None) -> str:
 
 
 def _constant_eq(a: str, b: str) -> bool:
-    """Compare digests (never compare raw secrets for logging)."""
-    return hashlib.sha256(a.encode("utf-8")).hexdigest() == hashlib.sha256(b.encode("utf-8")).hexdigest()
+    """Compare digests in constant time (never compare raw secrets for logging)."""
+    import hmac
+    return hmac.compare_digest(
+        hashlib.sha256(a.encode("utf-8")).hexdigest(),
+        hashlib.sha256(b.encode("utf-8")).hexdigest(),
+    )
 
 
 class InMemoryRateLimiter:

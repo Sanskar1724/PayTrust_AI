@@ -107,9 +107,13 @@ def _evaluate_at_threshold(y_true: np.ndarray, prob: np.ndarray, amount: np.ndar
 
 def run(predictions_path: Path = DEFAULT_PREDICTIONS) -> dict:
     df = pd.read_parquet(predictions_path)
+    for col in ("isFraud", "prob"):
+        if col not in df.columns:
+            raise ValueError(f"predictions are missing required column '{col}'")
     y_true = df["isFraud"].to_numpy().astype(int)
     prob = df["prob"].to_numpy().astype(float)
-    amount = df["amount"].to_numpy().astype(float)
+    # Older prediction files may lack amount — fall back to zeros (costs become SIMULATED-on-counts).
+    amount = df["amount"].to_numpy().astype(float) if "amount" in df.columns else pd.Series([0.0] * len(df)).to_numpy()
 
     # AUCs are threshold-free
     pr_auc = float(average_precision_score(y_true, prob))

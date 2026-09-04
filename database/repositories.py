@@ -183,9 +183,10 @@ def get_policy(user_id: int, agent_id: int, db_path: Path | None = None) -> dict
 
 
 def get_daily_spent(user_id: int, db_path: Path | None = None, today: str | None = None) -> int:
-    """Sum of payment_requests.amount for user today (UTC date)."""
+    """Sum of payment_requests.amount for user today (UTC date, matching created_at UTC)."""
     if today is None:
-        today = date.today().isoformat()  # YYYY-MM-DD
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).date().isoformat()  # YYYY-MM-DD UTC
     with db_cursor(db_path=db_path) as cur:
         cur.execute(
             "SELECT COALESCE(SUM(amount),0) FROM payment_requests WHERE user_id = ? AND substr(created_at,1,10) = ?",

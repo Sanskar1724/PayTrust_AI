@@ -4,7 +4,9 @@ models/predict_ieee.py — Generate submission.csv for test (506k) using trained
 Also maps IEEE transaction to PayTrust PaymentRequest for real-world demo.
 
 Usage:
-  python -m models.predict_ieee --model models/ieee_model.pkl --test data/required csv/ieee-fraud-detection/test_transaction.csv --out evaluation/submission.csv
+  python -m models.predict_ieee --model models/ieee_model.pkl \
+    --test "data/required csv/ieee-fraud-detection/test_transaction.csv" \
+    --out evaluation/submission.csv
 """
 from __future__ import annotations
 
@@ -17,8 +19,9 @@ import numpy as np
 # Reuse feature engineering from train_ieee_chunked
 from models.train_ieee_chunked import _engineer_chunk, _load_identity_index, _select_features
 
-TEST_TRANS = Path("data/required csv/ieee-fraud-detection/test_transaction.csv")
-TEST_ID = Path("data/required csv/ieee-fraud-detection/test_identity.csv")
+_ROOT = Path(__file__).resolve().parents[1]
+TEST_TRANS = _ROOT / "data/required csv/ieee-fraud-detection/test_transaction.csv"
+TEST_ID = _ROOT / "data/required csv/ieee-fraud-detection/test_identity.csv"
 
 def predict_test(model_path: Path, test_trans: Path, test_id: Path, out_path: Path, chunksize: int = 50000):
     # Load model bundle
