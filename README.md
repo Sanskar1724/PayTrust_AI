@@ -74,6 +74,22 @@ copy .env.example .env  # edit only if you need AI/Razorpay keys (TEST MODE only
 streamlit run app.py  # → http://localhost:8501
 ```
 
+## Deploy to Streamlit Community Cloud (free)
+
+Repo root **is** this folder, so the main file path is just `app.py`.
+
+1. Push to GitHub (IEEE CSVs, `.env`, `*.db`, `*.pkl` are already gitignored — nothing secret or oversized leaves your machine).
+2. Go to `share.streamlit.io` → **New app** → pick repo/branch → **Main file path:** `app.py`.
+3. **Advanced settings → Python version:** `3.12` (exact pins like `pydantic==2.7.4` predate 3.13 wheels).
+4. **Settings → Secrets** — paste from `.streamlit/secrets.toml.example` with real values (at minimum `OPENROUTER_API_KEY` for live AI; Razorpay `rzp_test_*` for TEST MODE). Save → Reboot.
+5. Deploy. No `.env`, Docker, or database setup needed.
+
+Cloud notes (by design, not bugs):
+
+- **Ephemeral SQLite** — `data/paytrust.db` is recreated empty on every reboot/sleep; demo payments and decisions don't persist. Committed `evaluation/ieee_report.json` + `ieee_test_predictions.parquet` still render metrics.
+- **IEEE CSVs not bundled** (1.3 GB, gitignored) — **Real World (IEEE)** shows a notice; Train/Submission buttons disable themselves; policy → risk → decision → AI → simulator work fully.
+- **No keys, no problem** — AI falls back to deterministic explanations, Razorpay to SIMULATED mode; the app never crashes for missing secrets.
+
 ## Environment Variables
 
 All via `core/config.py:16` and `.env.example`:

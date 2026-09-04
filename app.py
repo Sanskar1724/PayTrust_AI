@@ -6,6 +6,7 @@ Run:  streamlit run app.py
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 import json
@@ -19,6 +20,17 @@ if str(ROOT) not in sys.path:
 
 import streamlit as st
 import pandas as pd
+
+# Streamlit Community Cloud has no .env file — secrets come from the app
+# dashboard instead (and Cloud also injects them as env vars). Copy any
+# dashboard secrets into the environment BEFORE core.config loads settings,
+# so pydantic-settings picks them up. Local .env behavior is unchanged.
+try:
+    for _k, _v in dict(st.secrets).items():
+        if _v not in (None, "") and _k not in os.environ:
+            os.environ[_k] = str(_v)
+except Exception:
+    pass
 import plotly.graph_objects as go
 
 from core.config import get_settings
@@ -466,6 +478,10 @@ elif nav == "Payment History":
 elif nav == "Real World (IEEE)":
     st.subheader("Real-world IEEE fraud detection — chunked pipeline", icon=":material/analytics:")
     st.caption("Production-grade pipeline: 590k train + 506k test + 144k/141k identity + 123 synthetic → PayTrust decisions")
+    IEEE_DIR = ROOT / "data/required csv/ieee-fraud-detection"
+    IEEE_LOCAL = (IEEE_DIR / "train_transaction.csv").exists()
+    if not IEEE_LOCAL:
+        st.info("Cloud deploy: the 1.3 GB IEEE CSVs are gitignored and not bundled — Train / Submission need a local clone. Policy → Risk → Decision → AI → Simulator, the committed `evaluation/ieee_report.json` metrics, and the live demo all work fully.", icon="☁️")
     # All CSVs overview — professional table
     csv_data = [
         {"File": "train_transaction.csv", "Rows": "590,540", "Cols": 394, "Size": "651 MB", "Use": "Train (label isFraud 3.5%)", "Pct": "100%"},
@@ -502,7 +518,7 @@ elif nav == "Real World (IEEE)":
     model_path = ROOT / "models/ieee_model.pkl"
     c1, c2 = st.columns([1,2])
     with c1:
-        if st.button("Train on 20k sample (quick)", type="primary"):
+        if st.button("Train on 20k sample (quick)", type="primary", disabled=not IEEE_LOCAL, help=None if IEEE_LOCAL else "Needs local IEEE CSVs (not bundled on Cloud)"):  # noqa: E501
             with st.spinner("Processing 20k in 2 chunks + training LogisticRegression..."):
                 try:
                     import subprocess, sys
@@ -681,7 +697,7 @@ elif nav == "Real World (IEEE)":
     st.caption("Uses `test_transaction.csv` (506k, no label) + `test_identity.csv` (141k) → `evaluation/submission.csv` (506k, `TransactionID,isFraud`)")
     colA, colB = st.columns([1,2])
     with colA:
-        if st.button("Generate Submission (chunked 50k)"):
+        if st.button("Generate Submission (chunked 50k)", disabled=not IEEE_LOCAL, help=None if IEEE_LOCAL else "Needs local IEEE CSVs (not bundled on Cloud)"):  # noqa: E501
             with st.spinner("Predicting 506k test in 10 chunks... (30-60s)"):
                 try:
                     import subprocess, sys
