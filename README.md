@@ -1,179 +1,221 @@
-# PayTrust AI — Evidence-Driven Payment Safety & Authorization Layer
+<p align="center">
+  <img src="assets/logo.svg" alt="PayTrust AI logo" width="120" />
+</p>
 
-> **Razorpay Buildathon — AI-agent payment safety.** Controls whether an AI agent may spend on behalf of a user: **Policy → Risk → Evidence → AI Investigation (advisory) → Decision Simulation → ALLOW / ASK_USER / DENY → Razorpay TEST MODE**.
+<h1 align="center">PayTrust AI</h1>
 
-**Production-minded local prototype** — runs with **Streamlit + SQLite + Python 3.11/3.12**, no Docker/Postgres/Redis required for Phases 1-10. Deterministic policy is final; LLM never overrides.
-![MIT](https://img.shields.io/badge/License-MIT-green) ![Python](https://img.shields.io/badge/Python-3.11%7C3.12-blue) ![Streamlit](https://img.shields.io/badge/Streamlit-1.63-red) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-teal) ![scikit-learn](https://img.shields.io/badge/scikit--learn-1.5-orange) ![IEEE-CIS](https://img.shields.io/badge/dataset-IEEE--CIS%20590k-9cf) ![Tests](https://img.shields.io/badge/tests-128%20passed-brightgreen) ![CI](https://img.shields.io/github/actions/workflow/status/Sanskar1724/PayTrust_AI/ci.yml?branch=main)
+<p align="center"><strong>Evidence-driven payment safety &amp; authorization layer for AI agents.</strong><br />
+Should this AI agent be allowed to make this payment on behalf of the user?<br />
+PayTrust answers with <strong>Policy → Risk → Evidence → AI Investigation → ALLOW / ASK_USER / DENY</strong>.</p>
 
-## Brief → Product Mapping (read this first, judges)
+<p align="center">
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="License: MIT" />
+  <img src="https://img.shields.io/badge/Python-3.12-blue" alt="Python 3.12" />
+  <img src="https://img.shields.io/badge/Streamlit-Cloud-red" alt="Streamlit" />
+  <img src="https://img.shields.io/badge/FastAPI-REST-teal" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/dataset-IEEE--CIS%20590k-9cf" alt="IEEE-CIS 590k" />
+  <img src="https://img.shields.io/badge/tests-128%20passed-brightgreen" alt="128 tests passing" />
+  <img src="https://img.shields.io/github/actions/workflow/status/Sanskar1724/PayTrust_AI/ci.yml?branch=main" alt="CI status" />
+</p>
 
-The official brief (`../full_breif into.txt`) describes a *merchant payment-fraud risk platform*: payment events → risk → evidence → AI investigation → counterfactuals → **ALLOW / REVIEW / BLOCK** → human approval → audit. This product implements that exact pipeline, applied to the highest-stakes merchant-side abuse case: **an AI agent spending on a user's behalf**. Vocabulary and scope map as follows:
+<p align="center"><em>Built for the Razorpay Buildathon — Track 02: AI Risk Manager.</em></p>
 
-| Brief concept | This product | Where |
+---
+
+## Table of Contents
+
+- [The Problem](#the-problem)
+- [How It Works](#how-it-works)
+- [Key Features](#key-features)
+- [Live Evaluation Results](#live-evaluation-results)
+- [Quickstart](#quickstart)
+- [Deploy to Streamlit Community Cloud](#deploy-to-streamlit-community-cloud)
+- [Configuration](#configuration)
+- [Project Structure](#project-structure)
+- [REST API](#rest-api)
+- [Testing](#testing)
+- [Brief → Product Mapping](#brief--product-mapping)
+- [Limitations](#limitations)
+- [Roadmap](#roadmap)
+- [Author](#author)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
+
+## The Problem
+
+AI agents can now pick products and initiate payments on a user's behalf — but a payment system should **never blindly trust an agent with money**. A compromised, confused, or overly-eager agent can drain daily budgets, buy from blocked categories, or get socially engineered into fraudulent transfers.
+
+PayTrust AI sits between the **agent's intent** and the **payment rail** as a deterministic safety layer. The LLM explains and investigates, but it can never approve money movement — policy and risk engines have the final word.
+
+## How It Works
+
+```mermaid
+flowchart LR
+    A[AI Agent Intent] --> B[Payment Request<br/>Pydantic validation]
+    B --> C[Policy Engine<br/>deterministic allowlist]
+    C --> D[Risk Engine<br/>7 dimensions → 0–100]
+    D --> E[Decision Engine<br/>ALLOW / ASK_USER / DENY]
+    E --> F[AI Investigation<br/>advisory only]
+    E --> G[Decision Simulator<br/>counterfactual costs]
+    E --> H[Razorpay TEST MODE]
+```
+
+1. **Payment Request** (`models/payment_request.py`) — every intent becomes a validated object: `request_id`, `user_id`, `agent_id`, `merchant`, `amount ≥ 1`, `currency = INR`, category enum. Negatives, unknown users/agents, and bad categories are rejected here.
+2. **Policy Engine** (`engines/policy_engine.py`) — deterministic authorization: daily limit ₹100,000, max transaction ₹60,000, approval above ₹30,000, allowlist `electronics / books / travel`, blocklist `gambling / financial_products`. Returns `{authorized, requires_approval, violations, reasons}`.
+3. **Risk Engine** (`engines/risk_engine.py`) — seven transparent dimensions (amount, spending behavior, merchant, policy, agent auth, frequency, history) → `risk_score` 0–100 + scored factors. No black boxes.
+4. **Decision Engine** (`engines/decision_engine.py`) — hard rules, no magic numbers: any violation → `DENY`; HIGH/CRITICAL risk → `DENY`; MEDIUM → `ASK_USER`; LOW + approval gate → `ASK_USER`; else `ALLOW`.
+5. **AI Investigation** (`engines/ai_engine.py`) — OpenRouter → Groq → Gemini → deterministic fallback. Receives *only* structured facts, returns explanation + concerns + review questions. Advisory, never authoritative.
+6. **Decision Simulator** (`engines/decision_simulator.py`) — counterfactual `ALLOW / ASK_USER / DENY` with SIMULATED fraud exposure, false-positive cost, and friction. Recommends minimum expected cost.
+7. **Razorpay TEST MODE** (`services/razorpay_service.py`) — test orders, raw-body HMAC webhooks, idempotent event store. No live money, ever.
+
+## Key Features
+
+| Feature | What you get | Where |
 |---|---|---|
-| Payment/order events → validation | Payment request (Pydantic) + Razorpay TEST MODE webhook events | `models/payment_request.py`, `services/razorpay_service.py` |
-| Risk Intelligence (Rules + ML + behavior) | PolicyEngine (deterministic rules) + RiskEngine (7 behavioral dimensions) + IEEE-trained ML (threshold tool) | `engines/`, `models/` |
-| Evidence Collection | Factors (name/severity/score/details), policy violations, customer/agent history — facts only | `engines/risk_engine.py` |
-| AI Investigation (why suspicious?) | Advisory, fact-bound LLM explanation + concerns + review questions | `engines/ai_engine.py` |
-| Counterfactual Engine (ALLOW/REVIEW/BLOCK expected costs) | DecisionSimulator: fraud exposure, FP cost, ops cost, friction, expected total cost per action | `engines/decision_simulator.py` |
-| **ALLOW / REVIEW / BLOCK** | **ALLOW / ASK_USER / DENY** (ASK_USER ≡ REVIEW: human approval gate; DENY ≡ BLOCK) | `engines/decision_engine.py` |
-| Best Expected Decision | Min expected-total-cost recommendation, subject to hard safety guards (policy violation → DENY; never auto-block on low confidence) | `engines/decision_simulator.py` |
-| Human Approval | ASK_USER decision requires user approval before execution; audit-logged | `app.py`, `database/` |
-| Audit + Analytics | `audit_logs` (who/what/when/request_id/decision/risk/latency), metrics, Dashboard | `core/logger.py`, `core/metrics.py` |
-| Evaluation (precision/recall/F1/FPR/confusion, held-out) | Real IEEE-CIS temporal held-out test + reproducible harness | `evaluation/run_evaluation.py` |
+| Deterministic policy gate | 10 authorization cases, LLM-proof | `engines/policy_engine.py`, `tests/test_policy_engine.py` |
+| Transparent risk scoring | 7 dimensions → 0–100 with per-factor contributions | `engines/risk_engine.py` |
+| Enforceable decisions | `ALLOW / ASK_USER / DENY` with stored reasons + audit trail | `engines/decision_engine.py` |
+| Counterfactual simulator | "What if we allow / ask / deny?" with labeled SIMULATED costs | `engines/decision_simulator.py` |
+| Fact-bound AI copilot | Strict-prompt LLM, structured facts in, JSON out, offline fallback | `engines/ai_engine.py` |
+| Real-data ML signal | IEEE-CIS 590k trained model, PR-AUC evaluated, advisory only | `models/train_ieee_chunked.py` |
+| Threshold tool | Pick the operating point on live precision/recall/FPR/cost curves | `models/threshold.py`, UI + `POST /v1/threshold/*` |
+| REST API | `POST /v1/evaluate`, webhooks, payments, metrics, `/health`, `/ready` | `api/`, `docs/API.md` |
+| Razorpay TEST MODE | HMAC-SHA256 webhooks over raw body, idempotency, DLQ accounting | `services/razorpay_service.py` |
+| Observability | `request_id` tracing, redacted structured logs, metrics dashboard | `core/logger.py`, `core/metrics.py` |
 
-**Deliberate deviations (documented, not hidden):** local prototype uses Streamlit + SQLite instead of React + Postgres/Redis (the production stack exists in `../ai-payment-copilot/`); the incident-cluster/verification engines are roadmap items (see `FINAL_STATUS.md` §8, §11); the synthetic generator (550 rows) is a smoke test — real-data evidence comes from IEEE-CIS 590k.
+## Live Evaluation Results
 
-## 30-Second Demo
+Trained on **IEEE-CIS Fraud Detection** (590,540 transactions, 3.5% fraud) in 50k-row chunks — never loaded whole — with a temporal 70/15/15 split. From the committed `evaluation/ieee_report.json` (LogisticRegression, held-out test `n = 3000`):
 
+| Metric | Value |
+|---|---|
+| PR-AUC | **0.314** |
+| ROC-AUC | **0.842** |
+| Precision | 0.089 |
+| Recall | **0.823** |
+| F1 | 0.161 |
 
-1. `streamlit run app.py` → Dashboard shows health, DB inspect, metrics.
-2. **Agent Policy** → default policy: Test User + Shopping Assistant, daily 100k, max 60k, approval >30k, allowed `electronics,books,travel`, blocked `gambling,financial_products`.
-3. **Payment Request** → create `req_...` amount 25k electronics → Policy `authorized True` → Risk `LOW 15` → Decision `ALLOW` → persisted + audit.
-4. Change amount to 65k → `max_transaction_exceeded` → `DENY`; category gambling → `category_blocked` → `DENY`; amount 35k → `requires_approval` → `ASK_USER`.
-5. **Risk Assessment** → slider to see 7 dimensions and factors.
-6. **AI Investigation** → structured facts only → explanation (OpenRouter→Groq→Gemini→deterministic fallback).
-7. **Decision Simulator** → `ALLOW` low friction vs `DENY` safe, all labeled `SIMULATED / ESTIMATED`, recommends min cost.
-8. **Payment History** → filter, download CSV, generate `data/synthetic_transactions.csv` (seeded).
-9. **Audit Log** → every decision with `request_id, event_type, decision, risk_score, processing_time` (no secrets).
+Low precision at the default 0.5 threshold is *expected* at 3.5% base rate — that is exactly why the product ships the **threshold tool**: merchants slide the operating point and watch precision/recall/FPR and SIMULATED cost move on real curves instead of trusting a single number. Reproduce with `python -m models.train_ieee_chunked --full` (see `docs/TESTING.md`).
 
-## Architecture
-
-See `docs/ARCHITECTURE.md:1` for diagram and module map. Key files:
-Also see `docs/ROADMAP.md:1` — the 4-phase plan, buildathon-15 requirements checklist, and remaining optional items.
-
-- `app.py:1` — Streamlit 10 pages
-- `api/main.py:1` — FastAPI REST service over the tested engines (`docs/API.md`)
-- `core/config.py:16` — env + validation
-- `database/database.py:23` — SQLite WAL, 9 tables + `razorpay_events`
-- `engines/policy_engine.py:61` / `engines/risk_engine.py:1` / `engines/decision_engine.py:1` / `engines/decision_simulator.py:1` / `engines/ai_engine.py:1`
-- `services/razorpay_service.py:1` — HMAC raw body, idempotency
-- `models/payment_request.py:1` — Pydantic validation
-- `data/synthetic.py:1` → `data/synthetic_transactions.csv`
-
-## Features
-
-- **Deterministic PolicyEngine** — 10 cases tested (`tests/test_policy_engine.py:1`).
-- **RiskEngine** — 7 dimensions → 0-100 + factors (`tests/test_risk_engine.py:1`).
-- **DecisionEngine** — documented thresholds, no magic (`docs/DECISION_ENGINE.md`).
-- **DecisionSimulator** — counterfactual `ALLOW/ASK/DENY` with `SIMULATED` costs (`engines/decision_simulator.py:1`).
-- **AIEngine** — strict prompt, structured facts, fallback (`docs/AI_ENGINE.md`).
-- **REST API** — `POST /v1/evaluate`, webhook, payments, evaluation metrics (`api/`, `docs/API.md`, 16 tests).
-- **Synthetic Data** — seeded `500+50` rows, 6 scenarios (`data/synthetic.py:1`, `tests/test_synthetic.py:1`).
-- **Razorpay Test Mode** — order create, webhook HMAC, idempotency (`services/razorpay_service.py:1`, `tests/test_razorpay.py:1`).
-- **Security** — parameterized SQL, redacted logs, audit, checklist (`docs/SECURITY.md`).
-- **Observability** — structured logs with `request_id`, metrics dashboard (`core/metrics.py:1`, `docs/OBSERVABILITY.md`).
-- **Threshold Decision Tool** — real IEEE held-out test + SIMULATED cost model → merchant picks the operating point (precision/recall/FPR/cost trade-off, sweep curves, recommended points) via UI **and** REST (`models/threshold.py:1`, `api/routers/threshold.py:1`, `tests/test_threshold.py:1`).
-
-## Setup
+## Quickstart
 
 ```powershell
 python -m venv .venv; .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-copy .env.example .env  # edit only if you need AI/Razorpay keys (TEST MODE only)
-streamlit run app.py  # → http://localhost:8501
+copy .env.example .env  # only if you need AI/Razorpay keys (TEST MODE only)
+streamlit run app.py    # → http://localhost:8501
 ```
 
-## Deploy to Streamlit Community Cloud (free)
+Try it: **Payment Request** → `TechMart Electronics`, ₹25,000, `electronics` → `ALLOW`. Change to ₹65,000 → `DENY` (`max_transaction_exceeded`). Change category to `gambling` → `DENY` (`category_blocked`). Then open **AI Investigation** to see *why*, in plain English.
+
+More commands:
+
+```powershell
+python -m database.inspect                  # SQLite health (WAL, tables, counts)
+python -m data.synthetic --normal 500 --anomalies 50 --seed 42
+python -m models.train_ieee_chunked --nrows 20000 --seed 42   # needs local IEEE CSVs
+python -m api.main                          # REST API → http://localhost:8000 (/docs)
+python -m pytest tests/ -q                  # 128 tests
+```
+
+## Deploy to Streamlit Community Cloud
 
 Repo root **is** this folder, so the main file path is just `app.py`.
 
-1. Push to GitHub (IEEE CSVs, `.env`, `*.db`, `*.pkl` are already gitignored — nothing secret or oversized leaves your machine).
-2. Go to `share.streamlit.io` → **New app** → pick repo/branch → **Main file path:** `app.py`.
-3. **Advanced settings → Python version:** `3.12` recommended (`3.14` also works — pins are floor-only so pip picks compatible wheels).
-4. **Settings → Secrets** — paste from `.streamlit/secrets.toml.example` with real values (at minimum `OPENROUTER_API_KEY` for live AI; Razorpay `rzp_test_*` for TEST MODE). Save → Reboot.
+1. Push to GitHub (IEEE CSVs, `.env`, `*.db`, `*.pkl` are gitignored — nothing secret or oversized leaves your machine).
+2. `share.streamlit.io` → **New app** → repo/branch → **Main file path:** `app.py`.
+3. **Advanced settings → Python version:** `3.12` recommended (`3.14` also works).
+4. **Settings → Secrets** — paste from `.streamlit/secrets.toml.example` with real values (`OPENROUTER_API_KEY` for live AI; `rzp_test_*` for TEST MODE). Save → Reboot.
 5. Deploy. No `.env`, Docker, or database setup needed.
 
-Cloud notes (by design, not bugs):
+Cloud notes (by design): SQLite is ephemeral (demo data resets on reboot; committed `evaluation/ieee_report.json` + predictions still render); the 1.3 GB IEEE CSVs aren't bundled so Train/Submission disable themselves with a notice; without keys the AI uses deterministic fallback and Razorpay runs SIMULATED — nothing crashes.
 
-- **Ephemeral SQLite** — `data/paytrust.db` is recreated empty on every reboot/sleep; demo payments and decisions don't persist. Committed `evaluation/ieee_report.json` + `ieee_test_predictions.parquet` still render metrics.
-- **IEEE CSVs not bundled** (1.3 GB, gitignored) — **Real World (IEEE)** shows a notice; Train/Submission buttons disable themselves; policy → risk → decision → AI → simulator work fully.
-- **No keys, no problem** — AI falls back to deterministic explanations, Razorpay to SIMULATED mode; the app never crashes for missing secrets.
+## Configuration
 
-## Environment Variables
+All settings via `core/config.py` + `.env` (never committed):
 
-All via `core/config.py:16` and `.env.example`:
+| Group | Keys |
+|---|---|
+| App | `APP_NAME`, `ENVIRONMENT`, `SECRET_KEY` |
+| Database | `DATABASE_URL` (default `sqlite:///./data/paytrust.db`) |
+| Razorpay (TEST ONLY) | `RAZORPAY_KEY_ID=rzp_test_*`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` |
+| LLM (priority order) | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `GROQ_API_KEY`, `GEMINI_API_KEY` |
+| Risk | `RISK_THRESHOLD_LOW=30`, `RISK_THRESHOLD_MEDIUM=60`, `RISK_THRESHOLD_HIGH=80` |
+| Cost model (SIMULATED) | `FP_*`, `FN_*` — assumptions, clearly labeled everywhere they appear |
+
+## Project Structure
 
 ```
-APP_NAME, APP_VERSION, ENVIRONMENT, SECRET_KEY
-DATABASE_URL=sqlite:///./data/paytrust.db
-RAZORPAY_KEY_ID=rzp_test_* (TEST ONLY)
-RAZORPAY_KEY_SECRET
-RAZORPAY_WEBHOOK_SECRET
-OPENROUTER_API_KEY, GROQ_API_KEY, GEMINI_API_KEY, OLLAMA_BASE_URL
-CB_FAILURE_THRESHOLD, CB_RECOVERY_TIMEOUT
-RISK_THRESHOLD_LOW=30, RISK_THRESHOLD_MEDIUM=60, RISK_THRESHOLD_HIGH=80
-FP_*, FN_*, WEBHOOK_*
+paytrust-ai/
+├── app.py                  # Streamlit UI (10 pages)
+├── api/                    # FastAPI service (evaluate, webhooks, payments, threshold)
+├── core/                   # config, structured logging, security, metrics
+├── database/               # SQLite WAL layer, parameterized repositories
+├── engines/                # policy, risk, decision, simulator, AI
+├── models/                 # payment_request, threshold, IEEE training/prediction
+├── services/               # Razorpay TEST MODE
+├── data/                   # synthetic generator (IEEE CSVs stay local, gitignored)
+├── evaluation/             # reports + reproducible harness
+├── tests/                  # 128 pytest tests
+├── docs/                   # 15 technical + 4 business docs
+└── requirements.txt
 ```
 
-Never commit `.env` (`.gitignore:1`).
-
-## Running Locally
+## REST API
 
 ```powershell
-python -m database.inspect
-python -m database.inspect --json
-python -m data.synthetic --normal 500 --anomalies 50 --seed 42  # → data/synthetic_transactions.csv
-python -m models.ml_risk --train data/synthetic_transactions.csv --seed 42  # optional, → evaluation/ml_report.json
-streamlit run app.py           # dashboard  → http://localhost:8501
-python -m api.main             # REST API   → http://localhost:8000  | Swagger /docs
+python -m api.main   # → http://localhost:8000, Swagger at /docs
 ```
 
-## API Service (FastAPI)
-
-The tested engines are exposed as a real REST API (`api/`, `docs/API.md`):
-
-```powershell
-python -m api.main
-```
-
-- `POST /v1/evaluate` → `ALLOW / ASK_USER / DENY` with evidence + SIMULATED counterfactuals
-  (auth: `X-API-Key`, default prints via `python -c "from api.security import api_key_for; print(api_key_for())"`).
-- `POST /v1/webhooks/razorpay` → raw-body HMAC, idempotent.
-- `GET /v1/payments`, `GET /v1/payments/{id}`, `GET /v1/evaluation/metrics`, `/health`, `/ready`.
-- Deployment: `Dockerfile` + `docker-compose.yml` + `docs/DEPLOYMENT.md` (Hugging Face
-  Spaces Docker recommended — free, serves both API + dashboard).
-## External Resources & Integrations
-
-| Resource | What it gives us | Status |
-|---|---|---|
-| [IEEE-CIS Fraud Detection (Kaggle](https://www.kaggle.com/datasets/mlg-ulb/ieee-fraud-detection) | Real 590k train + 506k test transactions; kept local ~1.3 GB (gitignored, never committed) | ✅ trained in chunks, 506,691 predictions |
-| [Razorpay Payments API](https://razorpay.com/docs/api/payments/) | TEST-mode orders + webhooks (raw-body HMAC, idempotent, defense-only) | ✅ wired (`RAZORPAY_KEY_ID=rzp_test_*` in `.env`) |
-| [Hugging Face Spaces (Docker](https://huggingface.co/new-space) | Free public URL serving dashboard + API behind one Space | 📋 `docs/DEPLOYMENT.md:1` |
-| [OpenRouter](https://openrouter.ai/) / [Groq](https://groq.com/) / [Gemini](https://ai.google.dev/) / [Ollama](http://localhost:11434) | Advisory AI explanation (provider fallback chain → deterministic when offline) | 🔑 optional keys in `.env` |
-| GitHub Actions | CI on push/PR: install → compile → 128 tests → threshold smoke | ✅ `.github/workflows/ci.yml` |
-| Repo | [`github.com/Sanskar1724/PayTrust_AI`](https://github.com/Sanskar1724/PayTrust_AI) | 🔗 source |
-
-**Safety:** Razorpay TEST MODE only, defense-only — no live money, no offensive features.
+- `POST /v1/evaluate` → decision + evidence + counterfactuals (`X-API-Key` auth)
+- `POST /v1/webhooks/razorpay` → HMAC-verified, idempotent event intake
+- `GET /v1/payments…`, `GET /v1/evaluation/metrics`, `/health`, `/ready`
+- Full reference: `docs/API.md`
 
 ## Testing
 
 ```powershell
 chcp 65001; $env:PYTHONUTF8="1"
-python -m pytest tests/ -v --tb=short
-# Expected: 115 tests, all pass (15 DB + 12 policy + 13 payment + 11 risk + 13 decision + 9 AI + 6 synthetic + 4 integration + 5 simulator + 6 razorpay + 5 security + 16 API)
+python -m pytest tests/ -q
+# 128 passed: DB 15 · policy 12 · payment 13 · risk 11 · decision 13 · AI 9 ·
+# synthetic 6 · integration 4 · simulator 5 · razorpay 6 · security 5 · API 16 · threshold 13
 ```
 
-See `docs/TESTING.md:1` for strategy and `docs/SECURITY.md:1` for checklist.
+CI runs install → compile → full suite → threshold smoke on every push/PR (`.github/workflows/ci.yml`). Strategy: `docs/TESTING.md`; threat model: `docs/SECURITY.md`.
 
-## Limitations (Honest)
+## Brief → Product Mapping
 
-- Local prototype — SQLite, no JWT/RBAC/rate limiting (stubs in `core/config.py`), no live Razorpay money, synthetic labels not real fraud.
-- ML model trained on synthetic data only — see `evaluation/ml_report.json` disclaimer “not production performance”.
-- LLM is advisory; deterministic engines are final.
-- No Docker/Postgres/Redis in local track (preserved in `../ai-payment-copilot` for production).
+The buildathon brief describes a merchant fraud-risk platform (events → risk → evidence → AI investigation → counterfactuals → ALLOW/REVIEW/BLOCK → approval → audit). This product implements that pipeline for the highest-stakes case — **an AI agent spending user money** — with `ASK_USER ≡ REVIEW` and `DENY ≡ BLOCK`. Deliberate, documented deviations: Streamlit + SQLite locally instead of React + Postgres/Redis; incident clustering is roadmap (`FINAL_STATUS.md`).
 
-## Future Improvements
+## Limitations
 
-- Postgres + Redis + FastAPI for `ai-payment-copilot` production track.
-- Real IEEE-CIS dataset, calibrated probabilities, PR-AUC tuning.
-- pgvector incident memory, Prometheus/Grafana, OpenTelemetry.
-- RBAC, JWT refresh, idempotency keys for payment creation.
+- Local track uses SQLite — no JWT/RBAC/rate limiting here (present in the `api/` service layer stubs and the Postgres production track).
+- No live money: Razorpay TEST MODE / SIMULATED only.
+- ML metrics come from a 20k-row sample on synthetic-split data for the demo model; the IEEE model card states its exact train/test sizes — read both before quoting numbers.
+- The LLM is advisory; deterministic engines are final. Always.
 
-## Trust Story
+## Roadmap
 
-AI Agent → Intent → Authorization → Policy → Risk → Evidence → AI Investigation → Decision Simulation → **ALLOW / ASK_USER / DENY** → Payment Infrastructure. Answers: is agent authorized? within policy? risky? why? what if allow/deny? should we ask user? can we safely execute?
+- Postgres + Redis production deployment of the `api/` service
+- Calibrated probabilities + cost-optimal threshold auto-selection
+- Incident memory (pgvector) over past investigations
+- Prometheus/Grafana observability, OpenTelemetry tracing
+- Full RBAC + JWT refresh + payment idempotency keys
+
+## Author
+
+**Sanskar** — design, engineering, and docs.
+
+- GitHub: [@Sanskar1724](https://github.com/Sanskar1724)
+- Project: [PayTrust_AI](https://github.com/Sanskar1724/PayTrust_AI)
 
 ## License
 
-MIT — see `../ai-payment-copilot/README.md`
+MIT — see [LICENSE](LICENSE).
+
+## Acknowledgments
+
+- Razorpay Buildathon for the track and problem statement
+- IEEE-CIS Fraud Detection dataset (Kaggle) for real-world evaluation data
+- OpenRouter, Groq, and Google Gemini for LLM access
+- The Streamlit, FastAPI, and scikit-learn open-source communities
