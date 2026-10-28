@@ -1,0 +1,6 @@
+# Offline training / evaluation only — not needed to run PayTrust.
+pandas>=2.2
+numpy>=1.26
+scikit-learn>=1.5
+pyarrow>=18.0
+pydantic-settings>=2.3

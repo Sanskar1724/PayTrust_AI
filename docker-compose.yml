@@ -1,50 +1,54 @@
-# PayTrust AI — production-minded local reference compose (single host)
-#   docker compose up --build -d
-#   → API http://localhost:8000  | Swagger /docs
-#   → Dashboard http://localhost:8501
-# Not required for local dev (SQLite/Streamlit run natively).
+# Production-like local stack: PostgreSQL + Redis + PayTrust (API and console on one port).
+#
+#   cp .env.example .env        # then edit secrets
+#   docker compose up --build
+#   → http://localhost:8000      console
+#   → http://localhost:8000/docs API reference
 
 services:
-  api:
-    build: .
-    image: paytrust-ai:latest
-    container_name: paytrust-api
-    # Copy `.env.example` → `.env` and fill in production values.
-    env_file:
-      - .env
+  postgres:
+    image: postgres:16-alpine
     environment:
-      - ENVIRONMENT=${ENVIRONMENT:-production}
-      - SECRET_KEY=${SECRET_KEY}
-      - PAYTRUST_API_KEY=${PAYTRUST_API_KEY}
-      - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-https://paytrust.ai}
-    ports:
-      - "8000:8000"
+      POSTGRES_USER: paytrust
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paytrust}
+      POSTGRES_DB: paytrust
     volumes:
-      - paytrust_data:/app/data
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
+      test: ["CMD-SHELL", "pg_isready -U paytrust -d paytrust"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     restart: unless-stopped
 
-  dashboard:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  app:
     build: .
     image: paytrust-ai:latest
-    container_name: paytrust-dashboard
-    command: ["python", "-m", "streamlit", "run", "app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
-      - ENVIRONMENT=${ENVIRONMENT:-production}
+      DATABASE_URL: postgresql+psycopg://paytrust:${POSTGRES_PASSWORD:-paytrust}@postgres:5432/paytrust
+      REDIS_URL: redis://redis:6379/0
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:8000}
     ports:
-      - "8501:8501"
-    volumes:
-      - paytrust_data:/app/data
+      - "8000:8000"
     depends_on:
-      api:
+      postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
 
 volumes:
-  paytrust_data:
+  pgdata:

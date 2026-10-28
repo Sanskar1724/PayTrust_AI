@@ -1,31 +1,40 @@
-# PayTrust AI — API service image (docker-compose / Hugging Face Spaces / VPS)
-# Phosphory: one lightweight container runs FastAPI (:8000). The Streamlit
-# dashboard reuses the same image with a different command (see docker-compose.yml).
+# PayTrust AI — one image: FastAPI API + the built React console, served from the same origin.
 
-FROM python:3.12-slim
+# ── 1. Build the frontend ──
+FROM node:22-alpine AS web
+WORKDIR /web
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY frontend/ ./
+RUN npm run build
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
+# ── 2. Runtime ──
+FROM python:3.12-slim AS runtime
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PORT=8000 \
+    WEB_CONCURRENCY=2 \
+    AUTO_MIGRATE=false \
+    LOG_JSON=true
 
-WORKDIR /app
+WORKDIR /app/backend
+COPY backend/requirements.txt ./
+RUN pip install -r requirements.txt
 
-# Install deps first for better layer caching
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/ ./
+COPY --from=web /web/dist /app/frontend/dist
+COPY docker/entrypoint.sh /entrypoint.sh
 
-# App code
-COPY . .
-
-# Persistent volume for SQLite
-RUN mkdir -p /app/data && chmod -R a+rw /app/data
-
-# Non-root user
-RUN useradd -m paytrust && chown -R paytrust:paytrust /app
+RUN useradd --create-home --uid 10001 paytrust \
+    && mkdir -p /app/backend/data \
+    && chown -R paytrust:paytrust /app/backend/data \
+    && chmod +x /entrypoint.sh
 USER paytrust
 
-EXPOSE 8000 8501
+EXPOSE 8000
+HEALTHCHECK --interval=15s --timeout=4s --start-period=20s --retries=4 \
+    CMD python -c "import os,urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PORT\",\"8000\")}/health', timeout=3)"
 
-# Default command: API service (override with `streamlit` for the dashboard)
-CMD ["python", "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/entrypoint.sh"]

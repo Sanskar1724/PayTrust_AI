@@ -16,7 +16,7 @@
 ### 1.2 AI Agents
 **Role:** End-user-facing "buyer" (e.g., OpenAI Operator, Anthropic Computer Use, custom shopping agents).
 **Need:** Reliable, low-latency authorization decisions; predictable behavior; graceful failure.
-**How they use it:** Call `POST /v1/evaluate` for every payment intent, then either proceed, ask the user, or abandon.
+**How they use it:** Call `POST /v1/payments` for every payment intent, then either proceed, ask the user, or abandon.
 **Success metric:** Sub-200ms P95 response; 99.9% uptime; no silent payment approvals.
 
 ### 1.3 End Users (humans)

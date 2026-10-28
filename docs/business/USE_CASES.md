@@ -48,7 +48,7 @@
 - Payment request is well-formed (Pydantic validation)
 
 **Main flow:**
-1. Agent submits `POST /v1/evaluate` (or uses the Streamlit form):
+1. Agent submits `POST /v1/payments` (or an operator uses the Playground):
    - `amount=₹25,000`, `category=electronics`, `merchant_name=Croma`, `user_id=1`, `agent_id=1`
 2. **PolicyEngine** evaluates: `daily_spent=0 < 100k`, `25k < 60k max`, `25k < 30k approval`, `electronics ∈ allowed`, `electronics ∉ blocked` → `authorized=True, requires_approval=False`
 3. **RiskEngine** assesses: amount in normal range, no violations, no velocity, no new device → `risk_score=15 (LOW)`, 2 low-severity factors
@@ -79,7 +79,7 @@
 **Postconditions:**
 - The agent presents a consent dialog to the user
 - User taps "Approve" or "Reject"
-- A subsequent call (`POST /v1/evaluate` with `user_approved=true/false`) re-evaluates and finalizes
+- A reviewer approves or rejects it in the console (`POST /v1/payments/{id}/approve` or `/reject`); the agent learns the outcome by polling or via its signed callback
 - If approved: ALLOW. If rejected: DENY.
 
 ---

@@ -1,0 +1,14 @@
+# PayTrust AI backend — runtime dependencies
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30
+pydantic[email]>=2.7
+pydantic-settings>=2.3
+sqlalchemy>=2.0.36
+alembic>=1.13
+psycopg[binary]>=3.2.3
+redis>=5.0
+httpx>=0.27
+pyjwt>=2.9
+bcrypt>=4.2
+prometheus-client>=0.21
+tzdata>=2024.1

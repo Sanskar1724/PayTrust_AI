@@ -1,97 +1,113 @@
-# ARCHITECTURE.md — PayTrust AI
+# Architecture
 
-## Problem
-AI agents can select products and initiate payments. Blindly trusting them to spend money is unsafe. We need a safety layer that answers: **Should this agent be allowed to make this payment on behalf of this user?**
+## Components
 
-## Solution
-PayTrust AI is a **production-minded local prototype** (Streamlit + SQLite) that evaluates:
+```mermaid
+flowchart TB
+    subgraph Clients
+        AG[AI agents<br/>X-API-Key]
+        OP[Operator console<br/>React · JWT]
+    end
+    subgraph Service["PayTrust service (FastAPI, N workers)"]
+        API[HTTP API /v1]
+        EV[Evaluation pipeline]
+        AP[Approvals + expiry sweeper]
+        BG[Background tasks<br/>orders · AI · callbacks]
+        AR[Agent Arena runner]
+    end
+    PG[(PostgreSQL)]
+    RD[(Redis)]
+    RZ[Razorpay]
+    LLM[LLM providers]
 
-```
-Agent Intent → Authorization → Policy → Risk → Evidence → AI Investigation (advisory) → Decision Simulation → ALLOW / ASK_USER / DENY → Payment (Razorpay TEST MODE)
-```
-
-Deterministic engines are final; LLM never overrides.
-
-## High-Level Diagram
-
-```
-┌─────────────┐
-│  AI Agent   │── Intent ──┐
-└─────────────┘            ▼
-                ┌─────────────────────┐
-                │  PaymentRequest     │  models/payment_request.py:1 (Pydantic: request_id, user_id, agent_id, merchant_id, amount≥1, currency INR, category enum)
-                └─────────┬───────────┘
-                          ▼
-                ┌─────────────────────┐
-                │  PolicyEngine       │  engines/policy_engine.py:61  deterministic
-                │  daily 100k, max 60k, approval>30k, allowed [electronics,books,travel], blocked [gambling,financial_products]
-                └─────────┬───────────┘
-                          ▼
-                ┌─────────────────────┐
-                │  RiskEngine         │  engines/risk_engine.py:1  7 dimensions → 0-100 + factors
-                └─────────┬───────────┘
-                          ▼
-                ┌─────────────────────┐
-                │  DecisionEngine     │  engines/decision_engine.py:1  ALLOW / ASK_USER / DENY (no magic numbers)
-                └─────────┬───────────┘
-                          ▼
-                ┌─────────────────────┐
-                │  DecisionSimulator  │  engines/decision_simulator.py:1  counterfactual ALLOW/ASK/DENY SIMULATED
-                └─────────┬───────────┘
-                          ▼
-                ┌─────────────────────┐
-                │  AIEngine           │  engines/ai_engine.py:1  OpenRouter→Groq→Gemini→deterministic, strict prompt, advisory only
-                └─────────┬───────────┘
-                          ▼
-                ┌─────────────────────┐
-                │  Razorpay TEST MODE │  services/razorpay_service.py:1  HMAC raw body, idempotency, never live
-                └─────────────────────┘
+    AG --> API
+    OP --> API
+    OP -. SSE live feed .-> API
+    API --> EV --> PG
+    API --> AP --> PG
+    EV --> BG
+    BG --> RZ
+    BG --> LLM
+    BG -. signed callback .-> AG
+    API <--> RD
+    AR -- real HTTP --> API
 ```
 
-Persistence: SQLite `data/paytrust.db` with 9 tables (`database/database.py:23`): users, agents, agent_policies, merchants, payment_requests, risk_assessments, decisions, approvals, audit_logs + razorpay_events (Phase 11). All queries parameterized (`database/repositories.py:1`).
+One image serves the API and the built console from the same origin. Every piece of shared state lives in PostgreSQL. Redis holds rate-limit counters and fans out live events across workers and instances. Without Redis, both fall back to in-process versions, which is fine for a single instance.
 
-## Module Map
+## The evaluation pipeline
 
-| Layer | Files | Responsibility |
-|-------|-------|----------------|
-| Core | `core/config.py:1`, `core/logger.py:1`, `core/exceptions.py:1`, `core/security.py:1`, `core/metrics.py:1` | Config (pydantic-settings), structured logging with redaction + request_id, typed errors, security checklist, metrics |
-| Database | `database/database.py:1` (WAL, FK), `database/repositories.py:1`, `database/inspect.py:1` | Idempotent init, seed Test User/Shopping Assistant/4 merchants + default policy, inspection |
-| Engines | `engines/policy_engine.py:61`, `engines/risk_engine.py:1`, `engines/decision_engine.py:1`, `engines/decision_simulator.py:1`, `engines/ai_engine.py:1` | Deterministic policy/risk/decision, counterfactual simulator, LLM abstraction |
-| Models | `models/payment_request.py:1`, `models/ml_risk.py:1` | Pydantic validation, optional LogisticRegression on synthetic data |
-| Services | `services/razorpay_service.py:1` | Razorpay Test Mode, webhook HMAC, idempotency |
-| Data | `data/synthetic.py:1` → `data/synthetic_transactions.csv` | Seeded 500+50 rows, 6 scenarios, reproducible |
-| UI | `app.py:1` (8 pages), `pages/` | Streamlit polished UI (metrics, cards, tables, charts, expanders) |
-| Tests | `tests/test_*.py` (11 files, 80+ tests) | Unit + integration, mocked AI/weather, DB isolation via tmp files |
-| Docs | `docs/*.md`, `README.md` | This doc + TESTING, SECURITY, DECISION_ENGINE, AI_ENGINE |
+`backend/app/services/evaluation.py` is the only code path that makes a decision. The agent API, the Playground and the Arena all call it.
 
-## Data Flow (Happy Path)
+1. **Idempotency.** If `request_id` already exists with the same body hash, return the stored decision (HTTP 200). With a different body, return 409.
+2. **Lock the payer.** `SELECT … FOR UPDATE` on the user row. On SQLite, every transaction is `BEGIN IMMEDIATE`. Concurrent payments for one payer run one at a time.
+3. **Gather context, excluding this payment.** Budget used today (in `SPEND_TIMEZONE`, counting ALLOWED + APPROVED + PENDING_APPROVAL), attempts in the last hour, identical payments in the last 10 minutes, and the payer's and merchant's history.
+4. **Policy → Risk → Decision → Counterfactuals.** These are the pure functions in `app/domain/`.
+5. **Write** the payment, its evidence and an audit event in the same transaction. Any failure rolls back and returns an error, never a decision (fail-closed).
+6. **After commit:** publish to the live feed. In the background, create a Razorpay order for ALLOWED payments and write an AI explanation for pending ones.
 
-1. UI or API creates `PaymentRequest` → `repositories.create_payment_request` (parameterized, FK checks) → `audit_logs: PAYMENT_CREATED`.
-2. `PolicyEngine.evaluate_request` queries `agent_policies` + `daily_spent` → `{authorized, requires_approval, violations}`.
-3. `RiskEngine.assess_request` queries frequency + merchant/user history → `{risk_score, risk_level, factors}`.
-4. `DecisionEngine.decide` → `ALLOW/ASK/DENY` with `reasons`; persists to `decisions` + `risk_assessments`.
-5. `AIEngine.investigate(build_facts(...))` → explanation/concerns/review_qs (advisory, never changes decision).
-6. `decision_simulator.simulate` → counterfactual table (SIMULATED).
-7. If `ALLOW` and Razorpay enabled, `razorpay_service.create_test_order` (or SIMULATED); webhook via `handle_webhook` (HMAC raw body → idempotency → `razorpay_events`).
+### Policy (`app/domain/policy.py`)
 
-## Failure & Safety
+| Violation | Rule |
+|---|---|
+| `max_transaction_exceeded` | amount > max per payment |
+| `daily_limit_exceeded` | used today + amount > daily limit |
+| `category_blocked` / `category_not_allowed` | category the agent claims vs. the policy lists |
+| `merchant_category_blocked` | the merchant's **registered** category is blocked, whatever the agent claims |
+| `merchant_blocked` / `merchant_not_allowed` | merchant lists |
+| `missing_user`, `missing_policy`, `missing_merchant`, `unauthorized_agent`, `agent_key_mismatch`, `agent_unauthorized` | identity and mandate |
 
-- LLM unavailable → deterministic fallback (`engines/ai_engine.py:_deterministic_explanation`) keeps app usable.
-- Webhook duplicate → `is_duplicate_event` idempotent ignore.
-- Policy violation → hard `DENY` regardless of low risk.
-- Secrets: only in `.env`, never in DB/UI/logs (`core/logger.py:18` redaction, `core/security.py:assert_no_secrets_in_db`).
-- Circuit breaker: `AIEngine` tracks `CB_FAILURE_THRESHOLD` failures and opens.
+An amount above `approval_threshold` sets `requires_approval`. That is not a violation.
 
-## Scaling (Future, not in Phase 1)
+### Risk (`app/domain/risk.py`)
 
-Local SQLite can be swapped to Postgres via `DATABASE_URL` (already supported in `core/config.py:74`). Redis/Docker/K8s only if justified.
+Points per factor, capped at 100. Any critical factor lifts the score to at least 65. Levels: LOW ≤ 30 < MEDIUM ≤ 60 < HIGH ≤ 80 < CRITICAL.
 
-## File References
+| Factor | Points |
+|---|---|
+| Amount ≥ 15k / 30k / 50k | 5 / 12 / 20 |
+| Budget use after this payment ≥ 50% / 70% / 90% | 6 / 12 / 20 |
+| High-risk category (claimed) / high-risk merchant / high merchant tier | 25 / 20 / 12 |
+| Claimed category ≠ merchant's registered category | 12 |
+| First payment to this merchant | 10 |
+| Policy violations | 15–25 each |
+| Agent not authorized | 20–25 |
+| ≥ 3 / 5 / 10 attempts in the last hour | 6 / 12 / 20 |
+| Identical payment in the last 10 min: 1 / ≥ 3 | 35 / 65 |
+| Little history with a large amount | 10–12 |
 
-- Config: `core/config.py:16`
-- DB schema: `database/database.py:23`
-- Policy example: `engines/policy_engine.py:48`
-- Risk thresholds: `core/config.py:56` and `engines/risk_engine.py:15`
-- Decision boundaries: `engines/decision_engine.py:18`
-- Simulator costs: `engines/decision_simulator.py:35`
-- AI prompt: `engines/ai_engine.py:45`
+### Decision (`app/domain/decision.py`)
+
+1. Any violation → **DENY**
+2. HIGH or CRITICAL risk → **DENY**
+3. MEDIUM risk → **ASK_USER**
+4. LOW risk, amount above approval threshold → **ASK_USER**
+5. Otherwise → **ALLOW**
+
+## Payment lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> ALLOWED: ALLOW
+    [*] --> DENIED: DENY
+    [*] --> PENDING_APPROVAL: ASK_USER
+    PENDING_APPROVAL --> APPROVED: reviewer approves
+    PENDING_APPROVAL --> REJECTED: reviewer rejects
+    PENDING_APPROVAL --> EXPIRED: APPROVAL_TTL_MINUTES
+```
+
+A pending payment reserves its amount, so approving it can never overspend. Rejecting it or letting it expire frees the reservation.
+
+## Security
+
+* Agent keys `pt_<prefix>_<secret>`: only a SHA-256 of the secret is stored, the key is shown once, and it can be revoked. A key can only act as its own agent.
+* Operators: bcrypt passwords, short-lived JWTs, and roles `viewer` < `reviewer` < `admin`.
+* Rate limits per key, per operator and per login email.
+* Razorpay webhooks are verified with HMAC over the raw body and are idempotent by event id. Outbound callbacks are signed with the agent's webhook secret.
+* Logs redact keys, tokens and secrets. In production, startup is refused if the configuration is unsafe (default secrets, wildcard CORS, SQLite).
+
+## Agent Arena
+
+Each run creates its own payers, a standard policy and one API key per simulated agent. It sends requests over real HTTP and scores every decision against that request's ground truth. Arena traffic is tagged `source=arena` and kept out of the dashboard and approvals inbox. Its pending payments are closed and its keys revoked when the run ends.
+
+The scorecard measures whether the rules behave as designed against known attack patterns, plus real latency and throughput. It is not a claim about real-world fraud rates.

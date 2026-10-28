@@ -1,162 +1,90 @@
-# API.md — PayTrust AI HTTP Service (`api/`)
+# Agent integration guide
 
-The tested deterministic engines (`paytrust-ai/`) are exposed as a real REST API so
-merchants / AI agents can programmatically consume PayTrust decisions.
+The full interactive reference is at `/docs` (OpenAPI) on any running instance.
 
-**Design rule:** the API adds **no new business logic** — it wraps already-tested
-modules (`engines/*`, `models/payment_request.py`, `services/razorpay_service.py`).
-Deterministic engines are final; the LLM is advisory only.
+## 1. Get credentials
 
-## Start
+An admin creates the agent and an API key in the console (**Agents & keys**), and a policy for each user the agent may spend for (**Policies**). The key is shown once.
 
-```powershell
-pip install -r requirements.txt
-python -m api.main            # → http://localhost:8000
-```
+## 2. Ask before every payment
 
-- Swagger UI: `http://localhost:8000/docs`
-- Health: `http://localhost:8000/health`, readiness: `http://localhost:8000/ready`
+```http
+POST /v1/payments
+X-API-Key: pt_1a2b3c4d_...
+Content-Type: application/json
 
-## Auth
-
-- `/v1/*` (except `/health`, `/ready`) requires header `X-API-Key: <key>`.
-- Key resolution (order):
-  1. `PAYTRUST_API_KEY` env var (set this in production).
-  2. Dev fallback derived from `SECRET_KEY`: `dev-<sha256(SECRET_KEY)[:16]>` — run
-     `python -c "from api.security import api_key_for; print(api_key_for())"` to print it.
-- In-process rate limiting (sliding window, `RATE_LIMIT_REQUESTS`/`RATE_LIMIT_WINDOW`
-  from config) — no Redis required on a single instance.
-- Every response carries `X-Request-ID` (pass yours upstream via the same header for
-  end-to-end correlation).
-
-## Endpoints
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/health` | – | Liveness probe (db reachable) |
-| GET | `/ready` | – | Readiness probe (db + model files) |
-| POST | `/v1/evaluate` | API key | Full pipeline → `ALLOW / ASK_USER / DENY` with evidence |
-| GET | `/v1/payments?limit=50` | API key | Recent evaluations |
-| GET | `/v1/payments/{request_id}` | API key | Payment + decision + risk + audit detail |
-| POST | `/v1/webhooks/razorpay` | HMAC | Razorpay test webhook (raw body verified, idempotent) |
-| GET | `/v1/evaluation/metrics` | API key | IEEE held-out + synthetic evaluation reports |
-| GET | `/v1/threshold?p=0.95` | API key | Classification + SIMULATED cost metrics at one operating point (real IEEE held-out test) |
-| GET | `/v1/threshold/curves` | API key | Threshold sweep curves (precision / recall / FPR / costs) |
-| GET | `/v1/threshold/recommend` | API key | Suggested operating points (max F1, min SIMULATED cost) |
-| GET | `/v1/threshold/check` | API key | Whether test predictions exist (UI gating) |
-
-### POST /v1/evaluate
-
-Body — any valid `PaymentRequest` plus optional `investigate: bool`:
-
-```json
 {
-  "request_id": "req_api_001",
+  "request_id": "order_7f3a91c2",
   "user_id": 1,
-  "agent_id": 1,
   "merchant_id": 1,
   "merchant_name": "TechMart Electronics",
   "amount": 25000,
   "currency": "INR",
   "category": "electronics",
-  "description": "Laptop",
-  "agent_reason": "User requested",
-  "investigate": false
+  "description": "Laptop, 16GB RAM",
+  "agent_reason": "User asked for a laptop under INR 30,000",
+  "callback_url": "https://agent.example.com/paytrust"
 }
 ```
 
-Response highlights:
+`request_id` is your idempotency key. If you retry after a timeout, send the same id and body. You get the original decision back with HTTP 200 instead of 201. Reusing an id with a different body returns 409.
+
+Response (abridged):
 
 ```json
 {
-  "request_id": "req_api_001",
+  "request_id": "order_7f3a91c2",
   "decision": "ALLOW",
-  "risk_score": 11,
+  "status": "ALLOWED",
+  "risk_score": 22,
   "risk_level": "LOW",
-  "reasons": ["..."],
-  "policy_result": { "authorized": true, "violations": [], ... },
-  "risk_result": { "risk_score": 11, "risk_level": "LOW", "factors": [...] },
-  "simulation": { "counterfactuals": [...], "recommended": "...", "disclaimer": "SIMULATED / ESTIMATED ..." },
-  "ai": null,
-  "processing_ms": 42.1,
-  "duplicate": false,
-  "simulated_estimates": true,
-  "disclaimer": "Decision is deterministic (LLM never overrides). AI explanation is advisory only. ..."
+  "reasons": ["Low risk (22) and within policy."],
+  "policy_result": { "violations": [], "daily_spent": 0, "policy": { "daily_limit": 100000 } },
+  "risk_result": { "factors": [{ "name": "amount_risk", "severity": "low", "score": 5, "details": "..." }] },
+  "order": null,
+  "expires_at": null,
+  "processing_ms": 6.4
 }
 ```
 
-- **Idempotent:** sending the same `request_id` again reuses the stored payment and
-  returns `duplicate: true` with the same deterministic decision.
-- `investigate: true` calls the **advisory** AI engine (OpenRouter → Groq → Gemini →
-  deterministic fallback). It never changes the decision.
-- `simulation.*` values are SIMULATED expected-cost estimates, never real forecasts.
+| `decision` | What the agent should do |
+|---|---|
+| `ALLOW` | Proceed. An order is attached shortly; fetch it with `GET /v1/payments/{request_id}`. |
+| `ASK_USER` | Do not pay yet. `status` is `PENDING_APPROVAL` until a human decides or `expires_at` passes. |
+| `DENY` | Do not pay. Show the user the `reasons`. |
 
-### POST /v1/webhooks/razorpay
+## 3. Learn the outcome of ASK_USER
 
-- Header `X-Razorpay-Signature` verified with HMAC-SHA256 over the **raw body** before parsing.
-- Duplicate `event_id` → `200 {"status": "duplicate"}` (idempotent ignore).
-- Invalid/missing signature → `400`.
-- Events stored in `razorpay_events` + audit log; see `services/razorpay_service.py`.
+Either poll `GET /v1/payments/{request_id}` until `status` is `APPROVED`, `REJECTED` or `EXPIRED`, or receive a callback:
 
-### Threshold Decision Tool (Track 02: choose the operating point)
+```http
+POST <callback_url>
+X-PayTrust-Signature: <hex HMAC-SHA256 of the raw body, keyed with your agent's webhook secret>
 
-A merchant picks a fraud-probability threshold and sees **real held-out test**
-metrics + the **SIMULATED cost trade-off** (fraud exposure vs false-positive
-cost) — no fake numbers. Reads `evaluation/ieee_test_predictions.parquet`
-saved by `models/train_ieee_chunked.py`. If predictions are missing, these
-return `404 {code: NO_TEST_PREDS}`.
-
-```powershell
-# Metrics at one operating point
-curl -H "X-API-Key: $KEY" "http://localhost:8000/v1/threshold?p=0.95"
-# → { threshold, precision, recall, f1, false_positive_rate, tp, fp, tn, fn,
-#     blocked_count, allowed_count, fraud_exposure, false_positive_cost,
-#     expected_total_cost, currency, disclaimer: "SIMULATED / ESTIMATED ..." }
-
-# Sweep curves (precision/recall/FPR/cost vs threshold)
-curl -H "X-API-Key: $KEY" "http://localhost:8000/v1/threshold/curves"
-
-# Operating-point hints (max F1, min SIMULATED total cost) — labeled as hints
-curl -H "X-API-Key: $KEY" "http://localhost:8000/v1/threshold/recommend"
-
-# UI gating
-curl -H "X-API-Key: $KEY" "http://localhost:8000/v1/threshold/check"
+{"event":"payment.resolved","request_id":"order_7f3a91c2","status":"APPROVED","decision":"ASK_USER","order":{"id":"order_..."}}
 ```
 
-All costs are SIMULATED/ESTIMATED (cost model in `core/config.py`) and clearly
-labeled — never a financial forecast.
+Verify the signature before trusting the body:
+
+```python
+import hashlib, hmac
+expected = hmac.new(WEBHOOK_SECRET.encode(), raw_body, hashlib.sha256).hexdigest()
+assert hmac.compare_digest(expected, request.headers["X-PayTrust-Signature"])
+```
 
 ## Errors
 
-All errors follow `{"detail": {"code": "...", "message": "...", ...}}`:
+Every error has the same shape:
 
-- `401` invalid/missing `X-API-Key`
-- `429` rate limit exceeded (header `Retry-After`)
-- `422` validation failure (`code: VALIDATION_ERROR`, `errors: [...]`)
-- `400` domain rejection (e.g. invalid webhook)
-- `404` unknown resource
-- `500` unexpected failure (message truncated, never leaks secrets)
-
-## Env vars (see `.env.example`)
-
-```
-PAYTRUST_API_KEY=            # empty in dev → derived dev key
-CORS_ALLOW_ORIGINS=*         # explicit allowlist in production
+```json
+{"error": {"code": "VALIDATION_ERROR", "message": "Request validation failed", "request_id": "…", "details": [{"field": "amount", "message": "…"}]}}
 ```
 
-Production boot guard: `create_app()` refuses to boot if `ENVIRONMENT=production`
-with a default `SECRET_KEY`, no `PAYTRUST_API_KEY`, or `CORS_ALLOW_ORIGINS=*`.
-
-## Tests
-
-```powershell
-python -m pytest tests/test_api.py -v
-```
-
-16 tests: auth, rate-limit wiring, validation 422 contract, idempotency, webhook
-HMAC + duplicate + reject, evaluation metrics, request-id, health/ready.
-
-## Deployment
-
-See root `Dockerfile` + `docker-compose.yml` (reference, not required locally) and
-`docs/DEPLOYMENT.md` for free Hugging Face Spaces (Docker) / VPS options.
+| Status | Code | Meaning |
+|---|---|---|
+| 401 | `UNAUTHORIZED` | Missing, invalid or revoked key, or a disabled agent |
+| 404 | `NOT_FOUND` | Unknown request id (agents only see their own payments) |
+| 409 | `CONFLICT` | `request_id` reused with a different body |
+| 422 | `VALIDATION_ERROR` | Bad input; see `details` |
+| 429 | `RATE_LIMITED` | Back off for `Retry-After` seconds |
+| 5xx | — | No decision was made. Retry with the same `request_id`. |

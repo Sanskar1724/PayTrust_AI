@@ -1,78 +1,54 @@
-# DEPLOYMENT.md — Serving PayTrust AI (free-first, 8 GB laptop friendly)
+# Deployment
 
-The local footprint is intentionally tiny — no Postgres/Redis/Docker required on
-your 8 GB laptop. The trained models are ~0.01 MB and prediction is near-zero RAM.
-You can serve people entirely from free tiers.
+PayTrust ships as **one Docker image** (`Dockerfile`). On start it runs migrations and creates the first admin (`python -m app.cli init`), then serves the API and the console on `$PORT`.
 
-## 1. Run locally (dev)
+## What production needs
 
-```powershell
-python -m venv .venv; .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-copy .env.example .env          # fill only if you want AI/Razorpay TEST keys
-streamlit run app.py            # dashboard  http://localhost:8501
-python -m api.main              # API        http://localhost:8000  | /docs
+| | Required | Notes |
+|---|---|---|
+| PostgreSQL 14+ | yes | `DATABASE_URL=postgresql+psycopg://user:pass@host:5432/db` |
+| Redis 6+ | for more than one instance | `REDIS_URL=redis://…`. Shared rate limits and live feed. |
+| HTTPS | yes | Terminate TLS at the platform or a reverse proxy. Keep proxy buffering off for `/v1/stream` (SSE). |
+
+### Environment
+
+```bash
+ENVIRONMENT=production
+SECRET_KEY=<48+ random chars>
+ADMIN_EMAIL=you@company.com
+ADMIN_PASSWORD=<strong password>      # only used when no operator exists yet
+CORS_ALLOW_ORIGINS=https://your-domain
+DATABASE_URL=postgresql+psycopg://...
+REDIS_URL=redis://...
+SEED_DEMO_DATA=false                   # true for a demo instance
+WEB_CONCURRENCY=2                      # workers per container
+RAZORPAY_MODE=simulated | test | live  # test/live need RAZORPAY_KEY_ID, _KEY_SECRET, _WEBHOOK_SECRET
 ```
 
-Both processes share the same SQLite file (WAL mode) — safe on one host.
+With `ENVIRONMENT=production`, startup is refused if `SECRET_KEY` or `ADMIN_PASSWORD` is a default, if CORS is `*`, or if the database is SQLite.
 
-## 2. Single-host with Docker (reference)
+## Health and monitoring
 
-```powershell
-copy .env.example .env          # set SECRET_KEY, PAYTRUST_API_KEY, CORS_ALLOW_ORIGINS
-docker compose up --build -d
+* `GET /health`: the process is up (liveness).
+* `GET /ready`: the database (and Redis) are reachable (readiness). Returns 503 if not.
+* `GET /metrics`: Prometheus metrics (request counts and latency by route, decisions by type).
+* Logs are JSON lines with a `request_id`. Every response carries an `X-Request-ID` header.
+
+## Operations
+
+```bash
+python -m app.cli init                                     # migrate + bootstrap (idempotent)
+PAYTRUST_PASSWORD=... python -m app.cli create-operator ops@company.com "Ops" reviewer
+alembic revision --autogenerate -m "describe change"       # new migration after model changes
 ```
 
-Not needed locally — provided so the same code runs on any $5 VPS later.
+Back up PostgreSQL with your provider's automated backups and point-in-time recovery. Payments and the audit log are the system of record.
 
-## 3. Free public hosting — Hugging Face Spaces (Docker) ← recommended
+## Hosting options
 
-One Space runs **both** the FastAPI API and the Streamlit dashboard behind one URL.
+Any platform that runs a Docker image with a managed PostgreSQL works. For example:
 
-1. Push this repo (`paytrust-ai/`) to GitHub.
-2. Create a **Docker** Space on https://huggingface.co/new-space
-   - SDK: **Docker**
-   - `Dockerfile` → use this repo's Dockerfile (runs the API by default).
-   - To expose the dashboard too, override the Space entrypoint:
-     `python -m streamlit run app.py --server.port 7860 --server.address 0.0.0.0`
-     (HF Spaces proxy expects port **7860**; map the API on an internal port and
-     add a small reverse proxy OR run the dashboard as the main app and the API
-     on `:8000` — see note below).
-3. Set Space secrets (Settings → Variables and secrets):
-   `SECRET_KEY`, `PAYTRUST_API_KEY`, `CORS_ALLOW_ORIGINS`, optional LLM/Razorpay TEST keys.
-4. Open the Space URL → dashboard live; hit `https://<space>.hf.space/health`.
+* **Render / Railway / Fly.io**: deploy the image, attach managed Postgres and Redis.
+* **A single VM**: `docker compose up -d` with the included `docker-compose.yml`, behind Caddy or nginx for TLS.
 
-**Two services, one Space (recommended layout):** add a tiny `Dockerfile` CMD that
-starts both via a wrapper (e.g. `python run_both.py`): uvicorn on `:8000` and
-streamlit on `:7860`. The Space serves `:7860` publicly; the API stays fully
-functional internally and can be exposed on `/` via `streamlit` for the demo.
-For a public API gateway later, move the API to Render + managed Postgres/Redis.
-
-## 4. Memory budget (8 GB laptop)
-
-| Component | Peak RAM |
-|---|---|
-| Streamlit app | ~300 MB |
-| FastAPI service | ~150 MB |
-| SQLite + models | < 50 MB |
-| Total | **~500 MB** — fits comfortably. |
-
-No Postgres/Redis/Docker on the laptop = nothing fights for the 0.7 GB you have free.
-
-## 5. Env checklist (production)
-
-Required: `SECRET_KEY` (≥32 random), `PAYTRUST_API_KEY` (strong random),
-`CORS_ALLOW_ORIGINS` (explicit allowlist, never `*`).
-Test-mode only: `RAZORPAY_KEY_ID` (`rzp_test_*`), `RAZORPAY_KEY_SECRET`,
-`RAZORPAY_WEBHOOK_SECRET`. LLM (optional): `OPENROUTER_API_KEY` / `GROQ_API_KEY` /
-`GEMINI_API_KEY`. Without LLM keys the app degrades to deterministic (still works).
-
-## 6. Reliability features already wired
-
-- API-key auth + in-process rate limiting (no Redis needed single-instance)
-- Idempotent `/v1/evaluate` (same `request_id` → same decision)
-- Razorpay webhook HMAC raw-body verification + duplicate idempotency
-- Request-id correlation (`X-Request-ID`) + redacted structured logs
-- Deterministic fallback when LLM/network unavailable
-- Health/readiness probes for orchestrators
-- Production boot guard (refuses unsafe config loudly)
+Choosing and configuring the hosting is the next step after local verification.
