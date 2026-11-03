@@ -66,6 +66,8 @@ X-PayTrust-Signature: <hex HMAC-SHA256 of the raw body, keyed with your agent's 
 {"event":"payment.resolved","request_id":"order_7f3a91c2","status":"APPROVED","decision":"ASK_USER","order":{"id":"order_..."}}
 ```
 
+Callback URLs must be public `http(s)` addresses (`https` only in production). PayTrust refuses localhost, private and link-local ranges, internal host names, and URLs with credentials, both when the URL is submitted (HTTP 422) and again at delivery time after DNS resolution. Redirects are not followed. A refused delivery is recorded in the audit log as `CALLBACK_BLOCKED`.
+
 Verify the signature before trusting the body:
 
 ```python

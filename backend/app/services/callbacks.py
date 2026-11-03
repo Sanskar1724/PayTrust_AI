@@ -1,6 +1,9 @@
 """Signed outbound callbacks: tell the agent when a pending payment is resolved.
 
 Header `X-PayTrust-Signature` = HMAC-SHA256(agent.webhook_secret, raw body), hex.
+
+Every attempt re-resolves the host and connects to a vetted public IP (see netguard), and
+redirects are never followed, so a callback cannot be turned against internal services.
 """
 from __future__ import annotations
 
@@ -15,6 +18,7 @@ from app.db import session_scope
 from app.log import get_logger
 from app.models import Agent, Payment
 from app.services import audit
+from app.services.netguard import UnsafeUrl, pin_public_address
 from app.services.security import sign_payload
 
 logger = get_logger("callbacks")
@@ -42,18 +46,33 @@ def notify_agent(request_id: str) -> None:
 
     raw = json.dumps(body, separators=(",", ":")).encode()
     headers = {"Content-Type": "application/json", "X-PayTrust-Signature": sign_payload(secret, raw)}
-    outcome = "failed"
+    outcome, detail = "failed", None
     for attempt in range(1, s.CALLBACK_MAX_ATTEMPTS + 1):
         try:
-            resp = httpx.post(url, content=raw, headers=headers, timeout=s.CALLBACK_TIMEOUT_SECONDS)
+            target = pin_public_address(url)
+        except UnsafeUrl as exc:
+            outcome, detail = "blocked", str(exc)
+            logger.warning(f"Callback {request_id} blocked: {exc}")
+            break
+        try:
+            with httpx.Client(timeout=s.CALLBACK_TIMEOUT_SECONDS, follow_redirects=False) as client:
+                resp = client.post(
+                    target.url,
+                    content=raw,
+                    headers=headers | {"Host": target.host_header},
+                    extensions={"sni_hostname": target.host},  # TLS + cert check against the real host name
+                )
             if resp.status_code < 300:
                 outcome = "delivered"
                 break
+            detail = f"HTTP {resp.status_code}"
             logger.warning(f"Callback {request_id} attempt {attempt} got HTTP {resp.status_code}")
         except httpx.HTTPError as exc:
+            detail = str(exc)[:200]
             logger.warning(f"Callback {request_id} attempt {attempt} failed: {exc}")
         if attempt < s.CALLBACK_MAX_ATTEMPTS:
             time.sleep(min(2 ** attempt, 10))
 
     with session_scope() as session:
-        audit.record(session, "system", "CALLBACK_" + outcome.upper(), request_id, url=url, attempts=attempt)
+        audit.record(session, "system", "CALLBACK_" + outcome.upper(), request_id, url=url, attempts=attempt,
+                     detail=detail)

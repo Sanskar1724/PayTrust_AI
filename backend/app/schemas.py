@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
+from app.services.netguard import UnsafeUrl, check_callback_url
+
 CATEGORIES = ("electronics", "books", "travel", "food", "fashion", "grocery", "fuel", "gambling", "financial_products")
 REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{6,64}$")
 MAX_AMOUNT = 10_000_000
@@ -21,6 +23,16 @@ def _normalize_categories(values: list[str]) -> list[str]:
         if low not in out:
             out.append(low)
     return out
+
+
+def _callback_url(v: str | None) -> str | None:
+    """Empty means "no callback". Anything else must be safe to POST to (see netguard)."""
+    if v is None or not v.strip():
+        return None
+    try:
+        return check_callback_url(v)
+    except UnsafeUrl as exc:
+        raise ValueError(str(exc)) from exc
 
 
 # ── Payments ──
@@ -81,9 +93,7 @@ class PaymentIn(BaseModel):
     @field_validator("callback_url")
     @classmethod
     def _callback(cls, v: str | None) -> str | None:
-        if v and not v.startswith(("https://", "http://")):
-            raise ValueError("callback_url must be an http(s) URL")
-        return v
+        return _callback_url(v)
 
 
 class PlaygroundIn(PaymentIn):
@@ -215,11 +225,21 @@ class AgentIn(BaseModel):
     callback_url: str | None = Field(default=None, max_length=500)
     is_active: bool = True
 
+    @field_validator("callback_url")
+    @classmethod
+    def _callback(cls, v: str | None) -> str | None:
+        return _callback_url(v)
+
 
 class AgentPatch(BaseModel):
     description: str | None = Field(default=None, max_length=1000)
     callback_url: str | None = Field(default=None, max_length=500)
     is_active: bool | None = None
+
+    @field_validator("callback_url")
+    @classmethod
+    def _callback(cls, v: str | None) -> str | None:
+        return _callback_url(v)
 
 
 class ApiKeyOut(BaseModel):

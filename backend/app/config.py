@@ -83,6 +83,8 @@ class Settings(BaseSettings):
     # ── Outbound callbacks to agents ──
     CALLBACK_TIMEOUT_SECONDS: float = 5.0
     CALLBACK_MAX_ATTEMPTS: int = 3
+    # Local development only: lets callbacks reach localhost / private networks (SSRF guard off).
+    CALLBACK_ALLOW_PRIVATE_NETWORKS: bool = False
 
     # ── Agent Arena ──
     ARENA_BASE_URL: str = "http://127.0.0.1:8000"
@@ -108,6 +110,8 @@ class Settings(BaseSettings):
             problems.append("DATABASE_URL must point to PostgreSQL")
         if self.RAZORPAY_MODE != "simulated" and not (self.RAZORPAY_KEY_ID and self.RAZORPAY_KEY_SECRET):
             problems.append("RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET required for RAZORPAY_MODE test/live")
+        if self.CALLBACK_ALLOW_PRIVATE_NETWORKS:
+            problems.append("CALLBACK_ALLOW_PRIVATE_NETWORKS must be false (agents could reach internal services)")
         if self.RAZORPAY_MODE != "simulated" and not self.RAZORPAY_WEBHOOK_SECRET:
             problems.append("RAZORPAY_WEBHOOK_SECRET required when Razorpay is enabled")
         return problems
