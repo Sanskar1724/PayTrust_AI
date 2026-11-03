@@ -131,8 +131,12 @@ def _evaluate_in_session(session: Session, req: PaymentIn, agent_id: int, key_ag
     context = gather_context(session, req.user_id, req.merchant_id, req.amount, now)
     context["daily_limit"] = policy.daily_limit if policy else None
 
+    # The agent supplies merchant_name, but only the registered name is trusted for policy
+    # matching, storage and display; the claimed name is kept as evidence.
     payment_facts = req.model_dump() | {
         "agent_id": agent_id,
+        "merchant_name": merchant.name if merchant else req.merchant_name,
+        "claimed_merchant_name": req.merchant_name,
         "merchant_category": merchant.category if merchant else None,
         "merchant_risk_tier": merchant.risk_tier if merchant else None,
     }
@@ -152,7 +156,7 @@ def _evaluate_in_session(session: Session, req: PaymentIn, agent_id: int, key_ag
         user_id=req.user_id,
         agent_id=agent_id,
         merchant_id=req.merchant_id,
-        merchant_name=req.merchant_name,
+        merchant_name=payment_facts["merchant_name"],
         amount=req.amount,
         currency=req.currency,
         category=req.category,

@@ -125,3 +125,52 @@ def test_agents_only_see_their_own_payments(client, agent_key, admin_headers):
     rid = client.post("/v1/payments", json=payment(), headers=agent_key).json()["request_id"]
     assert client.get(f"/v1/payments/{rid}", headers={"X-API-Key": other}).status_code == 404
     assert client.get(f"/v1/payments/{rid}", headers=admin_headers).status_code == 200
+
+
+# ── Merchant identity: the agent's merchant_name is a claim, the registry is the truth ──
+
+BASE_POLICY = {"user_id": 1, "agent_id": 1, "daily_limit": 100_000, "max_transaction": 60_000,
+               "approval_threshold": 30_000, "allowed_categories": ["electronics", "books", "travel"],
+               "blocked_categories": ["gambling", "financial_products"]}
+
+
+def _factor_names(body):
+    return [f["name"] for f in body["risk_result"]["factors"]]
+
+
+def test_blocked_merchant_cannot_be_renamed_past_the_blocklist(client, agent_key, admin_headers):
+    """Merchant #2 (BookHaven) is blocked; the agent calls it 'TechMart Electronics'."""
+    policy = BASE_POLICY | {"blocked_merchants": ["BookHaven"]}
+    assert client.put("/v1/policies", json=policy, headers=admin_headers).status_code == 200
+    body = client.post("/v1/payments", json=payment(merchant_id=2, merchant_name="TechMart Electronics",
+                                                    category="books"), headers=agent_key).json()
+    assert body["decision"] == "DENY"
+    assert "merchant_blocked" in body["policy_result"]["violations"]
+    assert body["merchant_name"] == "BookHaven"  # the registered name is what gets stored and shown
+    assert "merchant_name_mismatch" in _factor_names(body)
+
+
+def test_unlisted_merchant_cannot_borrow_an_allowlisted_name(client, agent_key, admin_headers):
+    policy = BASE_POLICY | {"allowed_merchants": ["TechMart Electronics"]}
+    assert client.put("/v1/policies", json=policy, headers=admin_headers).status_code == 200
+    body = client.post("/v1/payments", json=payment(merchant_id=2, merchant_name="TechMart Electronics",
+                                                    category="books"), headers=agent_key).json()
+    assert body["decision"] == "DENY"
+    assert "merchant_not_allowed" in body["policy_result"]["violations"]
+    # The real merchant on its own still passes the allowlist, matched case-insensitively.
+    ok = client.post("/v1/payments", json=payment(merchant_name="TechMart Electronics"), headers=agent_key).json()
+    assert "merchant_not_allowed" not in ok["policy_result"]["violations"]
+
+
+def test_merchant_name_mismatch_is_never_auto_allowed(client, agent_key):
+    body = client.post("/v1/payments", json=payment(merchant_id=2, merchant_name="TechMart Electronics",
+                                                    category="books", amount=500), headers=agent_key).json()
+    assert body["decision"] in ("ASK_USER", "DENY")
+    assert "merchant_name_mismatch" in _factor_names(body)
+
+
+def test_abbreviated_merchant_name_is_not_a_mismatch(client, agent_key):
+    body = client.post("/v1/payments", json=payment(merchant_name="techmart"), headers=agent_key).json()
+    assert body["decision"] == "ALLOW"
+    assert "merchant_name_mismatch" not in _factor_names(body)
+    assert body["merchant_name"] == "TechMart Electronics"

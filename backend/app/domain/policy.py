@@ -105,7 +105,10 @@ def evaluate_policy(
     merchant_id = payment.get("merchant_id")
     merchant_name = str(payment.get("merchant_name") or merchant_id or "")
     merchant_category = str(payment.get("merchant_category") or "").lower().strip()
-    merchant_keys = {merchant_name, str(merchant_id)}
+    # Callers must pass the merchant's REGISTERED name, never the agent's claim.
+    merchant_keys = {merchant_name.casefold(), str(merchant_id)}
+    allowed_merchants = {m.strip().casefold() for m in rules.allowed_merchants or ()}
+    blocked_merchants = {m.strip().casefold() for m in rules.blocked_merchants or ()}
 
     if not isinstance(amount, int) or isinstance(amount, bool) or amount < 1:
         violations.append("invalid_amount")
@@ -134,10 +137,10 @@ def evaluate_policy(
             f"the request claimed '{category}'."
         )
 
-    if rules.blocked_merchants and merchant_keys & set(rules.blocked_merchants):
+    if blocked_merchants and merchant_keys & blocked_merchants:
         violations.append("merchant_blocked")
         reasons.append(f"Merchant '{merchant_name}' is blocked by policy.")
-    if rules.allowed_merchants and not merchant_keys & set(rules.allowed_merchants):
+    if allowed_merchants and not merchant_keys & allowed_merchants:
         violations.append("merchant_not_allowed")
         reasons.append(f"Merchant '{merchant_name}' is not in the merchant allowlist.")
 

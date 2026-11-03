@@ -29,6 +29,8 @@ Content-Type: application/json
 
 `request_id` is your idempotency key. If you retry after a timeout, send the same id and body. You get the original decision back with HTTP 200 instead of 201. Reusing an id with a different body returns 409.
 
+`merchant_id` identifies the merchant. PayTrust uses the merchant's registered name and category for every policy check, and stores the registered name. If the `merchant_name` you send is clearly a different merchant, the payment gets a high-risk `merchant_name_mismatch` factor and is never auto-allowed.
+
 Response (abridged):
 
 ```json

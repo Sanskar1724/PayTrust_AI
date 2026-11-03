@@ -5,6 +5,7 @@ critical factor lifts the score to at least 65. Every point is explained by a fa
 """
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -29,6 +30,19 @@ class RiskFactor:
     severity: str
     score: int
     details: str
+
+
+def _name_key(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.casefold())
+
+
+def merchant_names_differ(claimed: str, registered: str) -> bool:
+    """True when the agent's merchant name is clearly not the registered one.
+    Abbreviations and formatting differences ("TechMart" vs "TechMart Electronics") are fine."""
+    a, b = _name_key(claimed), _name_key(registered)
+    if not a or not b:
+        return False
+    return a not in b and b not in a
 
 
 def level_for(score: int) -> str:
@@ -98,6 +112,14 @@ def assess_risk(
         factors.append(RiskFactor(
             "category_mismatch", "medium", 12,
             f"Request says '{category}' but the merchant is registered as '{merchant_category}'",
+        ))
+    claimed_name = payment.get("claimed_merchant_name")
+    registered_name = payment.get("merchant_name")
+    if claimed_name and registered_name and merchant_names_differ(claimed_name, registered_name):
+        factors.append(RiskFactor(
+            "merchant_name_mismatch", "high", 35,
+            f"Agent named the merchant '{claimed_name}', but merchant #{payment.get('merchant_id')} "
+            f"is registered as '{registered_name}'",
         ))
     if context.get("is_new_merchant") and not any(f.severity == "critical" for f in factors):
         factors.append(RiskFactor("merchant_risk", "medium", 10, "First payment from this user to this merchant"))

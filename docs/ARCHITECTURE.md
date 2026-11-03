@@ -54,7 +54,7 @@ One image serves the API and the built console from the same origin. Every piece
 | `daily_limit_exceeded` | used today + amount > daily limit |
 | `category_blocked` / `category_not_allowed` | category the agent claims vs. the policy lists |
 | `merchant_category_blocked` | the merchant's **registered** category is blocked, whatever the agent claims |
-| `merchant_blocked` / `merchant_not_allowed` | merchant lists |
+| `merchant_blocked` / `merchant_not_allowed` | merchant lists, matched on the merchant's id or **registered** name (case-insensitive), never the name the agent sends |
 | `missing_user`, `missing_policy`, `missing_merchant`, `unauthorized_agent`, `agent_key_mismatch`, `agent_unauthorized` | identity and mandate |
 
 An amount above `approval_threshold` sets `requires_approval`. That is not a violation.
@@ -69,6 +69,7 @@ Points per factor, capped at 100. Any critical factor lifts the score to at leas
 | Budget use after this payment ≥ 50% / 70% / 90% | 6 / 12 / 20 |
 | High-risk category (claimed) / high-risk merchant / high merchant tier | 25 / 20 / 12 |
 | Claimed category ≠ merchant's registered category | 12 |
+| Claimed merchant name clearly ≠ registered name (abbreviations are fine) | 35 |
 | First payment to this merchant | 10 |
 | Policy violations | 15–25 each |
 | Agent not authorized | 20–25 |
