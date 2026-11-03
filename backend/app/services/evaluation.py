@@ -57,15 +57,21 @@ def body_hash(data: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def spent_on(session: Session, user_id: int, day: str, exclude_payment_id: int | None = None) -> int:
+    """Budget the payer has used or reserved on `day` (ALLOWED + PENDING_APPROVAL + APPROVED)."""
+    stmt = select(func.coalesce(func.sum(Payment.amount), 0)).where(
+        Payment.user_id == user_id,
+        Payment.spend_day == day,
+        Payment.status.in_(PaymentStatus.COUNTS_TOWARD_SPEND),
+    )
+    if exclude_payment_id is not None:
+        stmt = stmt.where(Payment.id != exclude_payment_id)
+    return int(session.scalar(stmt) or 0)
+
+
 def gather_context(session: Session, user_id: int, merchant_id: int, amount: int, now) -> dict[str, Any]:
     """Payer history, read inside the locked transaction. The new payment is not yet written."""
-    daily_spent = session.scalar(
-        select(func.coalesce(func.sum(Payment.amount), 0)).where(
-            Payment.user_id == user_id,
-            Payment.spend_day == spend_day(now),
-            Payment.status.in_(PaymentStatus.COUNTS_TOWARD_SPEND),
-        )
-    )
+    daily_spent = spent_on(session, user_id, spend_day(now))
     attempts_last_hour = session.scalar(
         select(func.count()).select_from(Payment).where(
             Payment.user_id == user_id, Payment.created_at >= now - timedelta(hours=1)
@@ -102,7 +108,7 @@ def gather_context(session: Session, user_id: int, merchant_id: int, amount: int
 
 
 def _evaluate_in_session(session: Session, req: PaymentIn, agent_id: int, key_agent_id: int | None,
-                         source: str, actor: str, digest: str) -> tuple[Payment, bool]:
+                         key_id: int | None, source: str, actor: str, digest: str) -> tuple[Payment, bool]:
     existing = session.scalar(select(Payment).where(Payment.request_id == req.request_id))
     if existing is not None:
         if existing.body_hash != digest:
@@ -155,6 +161,7 @@ def _evaluate_in_session(session: Session, req: PaymentIn, agent_id: int, key_ag
         source=source,
         user_id=req.user_id,
         agent_id=agent_id,
+        api_key_id=key_id,
         merchant_id=req.merchant_id,
         merchant_name=payment_facts["merchant_name"],
         amount=req.amount,
@@ -184,7 +191,8 @@ def _evaluate_in_session(session: Session, req: PaymentIn, agent_id: int, key_ag
     return payment, True
 
 
-def evaluate_payment(req: PaymentIn, *, key_agent_id: int | None, source: str, actor: str) -> tuple[Payment, bool]:
+def evaluate_payment(req: PaymentIn, *, key_agent_id: int | None, source: str, actor: str,
+                     key_id: int | None = None) -> tuple[Payment, bool]:
     """Evaluate (or idempotently replay) one payment. Returns (payment, created)."""
     agent_id = req.agent_id or key_agent_id
     if agent_id is None:
@@ -192,7 +200,8 @@ def evaluate_payment(req: PaymentIn, *, key_agent_id: int | None, source: str, a
     digest = body_hash(req.model_dump() | {"agent_id": agent_id})
     try:
         with session_scope() as session:
-            payment, created = _evaluate_in_session(session, req, agent_id, key_agent_id, source, actor, digest)
+            payment, created = _evaluate_in_session(session, req, agent_id, key_agent_id, key_id, source, actor,
+                                                     digest)
     except IntegrityError as exc:
         # Lost a race on the same request_id — the winner's row is the answer.
         with session_scope() as session:

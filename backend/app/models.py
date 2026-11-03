@@ -160,6 +160,8 @@ class Payment(Base):
 
     user_id: Mapped[int] = mapped_column(Integer, index=True)
     agent_id: Mapped[int] = mapped_column(Integer, index=True)
+    # The API key that submitted the request (None for playground). Revoking it blocks approval.
+    api_key_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     merchant_id: Mapped[int] = mapped_column(Integer, index=True)
     merchant_name: Mapped[str] = mapped_column(String(160))
     amount: Mapped[int] = mapped_column(Integer)

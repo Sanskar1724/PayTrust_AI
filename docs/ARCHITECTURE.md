@@ -93,11 +93,13 @@ stateDiagram-v2
     [*] --> DENIED: DENY
     [*] --> PENDING_APPROVAL: ASK_USER
     PENDING_APPROVAL --> APPROVED: reviewer approves
-    PENDING_APPROVAL --> REJECTED: reviewer rejects
+    PENDING_APPROVAL --> REJECTED: reviewer rejects, or approval re-check fails
     PENDING_APPROVAL --> EXPIRED: APPROVAL_TTL_MINUTES
 ```
 
 A pending payment reserves its amount, so approving it can never overspend. Rejecting it or letting it expire frees the reservation.
+
+Approving re-checks the mandate at the moment money would move. The agent must still be active, the API key that submitted the payment must not be revoked, the user and merchant must still exist, and the **current** policy must still allow the payment. That includes the merchant's current registered category and the day's budget, not counting this payment's own reservation twice. Risk is not re-scored, because overriding risk is the reviewer's job. If any check fails, the payment becomes `REJECTED` by `system` with the reasons in `review_note`, the event is audited as `APPROVAL_BLOCKED`, the agent is notified, and the reviewer gets HTTP 409.
 
 ## Security
 

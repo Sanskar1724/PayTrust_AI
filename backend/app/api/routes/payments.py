@@ -35,8 +35,8 @@ def _out(payment: Payment, duplicate: bool = False) -> PaymentOut:
                409: {"description": "request_id reused with a different body"}},
 )
 def create_payment(body: PaymentIn, response: Response, agent: AgentPrincipal = Depends(require_agent)):
-    payment, created = evaluation.evaluate_payment(body, key_agent_id=agent.agent_id, source=agent.source,
-                                                   actor=agent.actor)
+    payment, created = evaluation.evaluate_payment(body, key_agent_id=agent.agent_id, key_id=agent.key_id,
+                                                   source=agent.source, actor=agent.actor)
     if not created:
         response.status_code = 200
     return _out(payment, duplicate=not created)
