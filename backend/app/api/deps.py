@@ -21,7 +21,7 @@ from app.db import session_scope, utcnow
 from app.errors import Forbidden, RateLimited, Unauthorized
 from app.models import Agent, ApiKey, Operator, Role
 from app.services.ratelimit import RateLimiter
-from app.services.security import api_key_matches, decode_access_token, parse_api_key
+from app.services.security import api_key_matches, decode_access_token, decode_stream_ticket, parse_api_key
 
 ARENA_KEY_PREFIX = "arena-"  # keys minted by the Agent Arena; their traffic is tagged source=arena
 _limiter: RateLimiter | None = None
@@ -153,10 +153,14 @@ def agent_or_operator(
     raise Unauthorized("Provide X-API-Key (agents) or a bearer token (operators)")
 
 
-def operator_from_query_token(
-    token: str | None = Query(default=None, description="Bearer token (EventSource cannot send headers)"),
+def operator_from_stream_ticket(
+    ticket: str | None = Query(default=None, description="Ticket from POST /v1/stream/ticket (valid 60 s)"),
 ) -> Operator:
-    operator = _operator(token)  # a stream must not pin a pooled connection for hours
-    if operator is None:
-        raise Unauthorized("Sign in required")
-    return operator
+    claims = decode_stream_ticket(ticket) if ticket else None
+    if claims is None:
+        raise Unauthorized("Missing or expired stream ticket")
+    with session_scope() as session:  # a stream must not pin a pooled connection for hours
+        operator = session.get(Operator, int(claims["sub"]))
+        if operator is None or not operator.is_active:
+            raise Unauthorized("Sign in required")
+        return operator

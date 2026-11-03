@@ -10,12 +10,13 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import current_operator, operator_from_query_token
+from app.api.deps import current_operator, operator_from_stream_ticket
 from app.db import get_session, session_scope
 from app.models import AuditEvent, Operator
 from app.schemas import AuditOut, Page
 from app.services import ml, razorpay, stats
 from app.services.events import bus
+from app.services.security import STREAM_TICKET_SECONDS, create_stream_ticket
 
 router = APIRouter(prefix="/v1")
 HEARTBEAT_SECONDS = 15
@@ -60,8 +61,13 @@ def ml_metrics(threshold: float = Query(ge=0.0, le=1.0), _: Operator = Depends(c
     return ml.metrics_at(threshold) | {"disclaimer": ml.DISCLAIMER}
 
 
+@router.post("/stream/ticket", tags=["insights"], summary="Short-lived ticket for opening the live feed")
+def stream_ticket(operator: Operator = Depends(current_operator)):
+    return {"ticket": create_stream_ticket(operator.id), "expires_in": STREAM_TICKET_SECONDS}
+
+
 @router.get("/stream", tags=["insights"], summary="Live decision feed (Server-Sent Events)")
-async def stream(request: Request, _: Operator = Depends(operator_from_query_token)):
+async def stream(request: Request, _: Operator = Depends(operator_from_stream_ticket)):
     async def events():
         yield "retry: 3000\n\n"
         subscription = bus.subscribe()

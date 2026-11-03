@@ -14,6 +14,7 @@ from app.db import utcnow
 
 JWT_ALGORITHM = "HS256"
 KEY_PREFIX = "pt_"
+STREAM_TICKET_SECONDS = 60
 
 
 # ── Passwords ──
@@ -31,25 +32,45 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 # ── Operator sessions ──
 
-def create_access_token(operator_id: int, role: str) -> str:
-    s = get_settings()
+def _encode(typ: str, operator_id: int, lifetime: timedelta, **claims) -> str:
     now = utcnow()
     payload = {
         "sub": str(operator_id),
-        "role": role,
         "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(minutes=s.JWT_EXPIRE_MINUTES)).timestamp()),
-        "typ": "operator",
+        "exp": int((now + lifetime).timestamp()),
+        "typ": typ,
+        **claims,
     }
-    return jwt.encode(payload, s.SECRET_KEY, algorithm=JWT_ALGORITHM)
+    return jwt.encode(payload, get_settings().SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
-def decode_access_token(token: str) -> dict | None:
+def _decode(token: str, typ: str) -> dict | None:
     try:
         payload = jwt.decode(token, get_settings().SECRET_KEY, algorithms=[JWT_ALGORITHM])
     except jwt.PyJWTError:
         return None
-    return payload if payload.get("typ") == "operator" else None
+    return payload if payload.get("typ") == typ else None
+
+
+def create_access_token(operator_id: int, role: str) -> str:
+    return _encode("operator", operator_id, timedelta(minutes=get_settings().JWT_EXPIRE_MINUTES), role=role)
+
+
+def decode_access_token(token: str) -> dict | None:
+    return _decode(token, "operator")
+
+
+# ── Live-feed tickets ──
+# EventSource cannot send headers, so the stream is opened with a URL parameter. That URL can
+# end up in proxy and access logs, so it carries a ticket, never the session token: it only
+# opens the stream, is useless as a bearer token, and expires within a minute.
+
+def create_stream_ticket(operator_id: int) -> str:
+    return _encode("stream", operator_id, timedelta(seconds=STREAM_TICKET_SECONDS))
+
+
+def decode_stream_ticket(ticket: str) -> dict | None:
+    return _decode(ticket, "stream")
 
 
 # ── Agent API keys: pt_<8-char prefix>_<secret> ──

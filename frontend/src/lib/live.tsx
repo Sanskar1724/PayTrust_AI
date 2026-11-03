@@ -1,9 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { API_BASE, getToken } from "./api";
+import { api, API_BASE, getToken } from "./api";
 import type { ArenaRun, PaymentSummary } from "./types";
 
 // One EventSource per tab. Incoming decisions refresh cached queries and feed the live ticker.
+// The stream is opened with a short-lived ticket (never the session token, which would end up
+// in URL logs). A ticket expires in 60 s, so the browser's own reconnect would fail: on any
+// error we close the source and reconnect with a fresh ticket, backing off up to 30 s.
 interface LiveState {
   connected: boolean;
   recent: PaymentSummary[];
@@ -19,10 +22,11 @@ export function LiveProvider({ enabled, children }: { enabled: boolean; children
   const invalidateTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
-    if (!enabled) return;
-    const token = getToken();
-    if (!token) return;
-    const source = new EventSource(`${API_BASE}/v1/stream?token=${encodeURIComponent(token)}`);
+    if (!enabled || !getToken()) return;
+    let source: EventSource | null = null;
+    let retryTimer: number | undefined;
+    let backoff = 1000;
+    let stopped = false;
 
     // Batch cache refreshes: during an Arena run dozens of events arrive per second.
     const scheduleInvalidate = () => {
@@ -43,18 +47,50 @@ export function LiveProvider({ enabled, children }: { enabled: boolean; children
       });
       scheduleInvalidate();
     };
-    source.addEventListener("payment.created", onPayment);
-    source.addEventListener("payment.updated", onPayment);
-    source.addEventListener("arena.progress", (e) => {
+    const onArena = (e: Event) => {
       const run = JSON.parse((e as MessageEvent).data);
       setState((s) => ({ ...s, arena: run }));
       if (run.status !== "RUNNING") queryClient.invalidateQueries({ queryKey: ["arena"] });
-    });
-    source.onopen = () => setState((s) => ({ ...s, connected: true }));
-    source.onerror = () => setState((s) => ({ ...s, connected: false })); // EventSource retries on its own
+    };
+
+    const reconnectLater = () => {
+      if (stopped) return;
+      window.clearTimeout(retryTimer);
+      retryTimer = window.setTimeout(connect, backoff);
+      backoff = Math.min(backoff * 2, 30_000);
+    };
+
+    async function connect() {
+      if (stopped) return;
+      let ticket: string;
+      try {
+        ticket = (await api<{ ticket: string }>("/v1/stream/ticket", { method: "POST" })).ticket;
+      } catch {
+        return reconnectLater(); // a 401 here also signs the user out via the api() handler
+      }
+      if (stopped) return;
+      const es = new EventSource(`${API_BASE}/v1/stream?ticket=${encodeURIComponent(ticket)}`);
+      source = es;
+      es.addEventListener("payment.created", onPayment);
+      es.addEventListener("payment.updated", onPayment);
+      es.addEventListener("arena.progress", onArena);
+      es.onopen = () => {
+        backoff = 1000;
+        setState((s) => ({ ...s, connected: true }));
+      };
+      es.onerror = () => {
+        es.close();
+        if (source === es) source = null;
+        setState((s) => ({ ...s, connected: false }));
+        reconnectLater();
+      };
+    }
+    connect();
 
     return () => {
-      source.close();
+      stopped = true;
+      source?.close();
+      window.clearTimeout(retryTimer);
       window.clearTimeout(invalidateTimer.current);
       invalidateTimer.current = undefined;
     };

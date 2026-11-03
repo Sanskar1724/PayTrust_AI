@@ -8,7 +8,7 @@ PayTrust ships as **one Docker image** (`Dockerfile`). On start it runs migratio
 |---|---|---|
 | PostgreSQL 14+ | yes | `DATABASE_URL=postgresql+psycopg://user:pass@host:5432/db` |
 | Redis 6+ | for more than one instance | `REDIS_URL=redis://…`. Shared rate limits and live feed. |
-| HTTPS | yes | Terminate TLS at the platform or a reverse proxy. Keep proxy buffering off for `/v1/stream` (SSE). |
+| HTTPS | yes | Terminate TLS at the platform or a reverse proxy. Keep proxy buffering off for `/v1/stream` (SSE). The stream is opened with a 60-second, stream-only ticket from `POST /v1/stream/ticket`, so a URL that lands in proxy logs never exposes a session token. |
 
 ### Environment
 
