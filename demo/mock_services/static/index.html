@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DemoPay · Agent inbox</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --ink: #18202b; --muted: #637083; --line: #e3e7ed;
+    --green: #157f4a; --green-bg: #e3f5ea; --red: #b42318; --red-bg: #fde8e6;
+    --amber: #a15c07; --amber-bg: #fdf1dc; --blue: #2456c7; --blue-bg: #e6eefc;
+    --violet: #6941c6; --violet-bg: #efe9fb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f141b; --panel: #161d27; --ink: #e7ecf2; --muted: #93a0b2; --line: #263142;
+      --green: #4cc38a; --green-bg: #12301f; --red: #f97066; --red-bg: #3a1714;
+      --amber: #f5b14c; --amber-bg: #35260e; --blue: #7aa2f7; --blue-bg: #17264a;
+      --violet: #b69cf5; --violet-bg: #291d47;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1400px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+  h1 { font-size: 20px; margin: 0; }
+  h1 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
+  h2 { font-size: 15px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+          font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .ok { color: var(--green); background: var(--green-bg); }
+  .bad { color: var(--red); background: var(--red-bg); }
+  .warn { color: var(--amber); background: var(--amber-bg); }
+  .info { color: var(--blue); background: var(--blue-bg); }
+  .vio { color: var(--violet); background: var(--violet-bg); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 16px 0; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .tile b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+  .tile span { color: var(--muted); font-size: 12px; }
+  .grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; }
+  @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; min-width: 0; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; padding: 6px 8px;
+       border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .mono { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12px; }
+  .muted { color: var(--muted); }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .msg { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+  .msg .top { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+  details { margin-top: 6px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  pre { margin: 6px 0 0; padding: 8px; background: var(--bg); border-radius: 8px; overflow-x: auto; font-size: 12px; }
+  .empty { color: var(--muted); padding: 18px 4px; text-align: center; }
+  .flow { color: var(--muted); font-size: 12px; margin-top: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>DemoPay <small>stand-in payment gateway</small> · Agent inbox <small>stand-in agent servers</small></h1>
+    <span id="conn" class="pill warn"><span class="dot"></span>connecting…</span>
+  </header>
+
+  <section class="tiles" id="tiles"></section>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>DemoPay orders</h2>
+      <p class="sub">PayTrust allowed or approved the payment and attached an order. The customer paid at DemoPay's checkout, and DemoPay sent a signed webhook back to PayTrust.</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Time</th><th>Customer · merchant</th><th>Agent</th><th class="num">Amount</th>
+            <th>Payment</th><th>Webhook → PayTrust</th></tr></thead>
+          <tbody id="orders"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Agent inbox</h2>
+      <p class="sub">Signed callbacks PayTrust sends to agents when a payment that needed approval is approved, rejected or expires. Each signature is checked with that agent's webhook secret.</p>
+      <div id="inbox"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+const inr = (n) => "₹" + Number(n || 0).toLocaleString("en-IN");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const time = (iso) => iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+const STATUS = { created: "info", attempted: "warn", captured: "ok", failed: "bad", refunded: "vio" };
+const STATUS_TEXT = { created: "checkout open", attempted: "customer paying…", captured: "captured", failed: "failed", refunded: "refunded" };
+const PT_STATUS = { APPROVED: "ok", REJECTED: "bad", EXPIRED: "warn" };
+let consoleUrl = "";
+
+function tile(value, label) { return `<div class="tile"><b>${value}</b><span>${label}</span></div>`; }
+
+function render(s) {
+  consoleUrl = s.paytrust_url;
+  const conn = document.getElementById("conn");
+  conn.className = "pill " + (s.gateway.connected ? "ok" : "bad");
+  conn.innerHTML = `<span class="dot"></span>${s.gateway.connected ? "following PayTrust live feed" : "not connected to PayTrust"}`;
+  conn.title = s.gateway.error || "";
+
+  const st = s.order_stats, verified = s.inbox.filter((m) => m.verified).length;
+  document.getElementById("tiles").innerHTML =
+    tile(st.captured, "payments captured") + tile(inr(s.collected), "collected") +
+    tile(st.failed, "payments failed") + tile(st.refunded, "refunded") +
+    tile(st.created + st.attempted, "checkouts in progress") +
+    tile(`${verified}/${s.inbox.length}`, "agent callbacks verified");
+
+  document.getElementById("orders").innerHTML = s.orders.length ? s.orders.map((o) => {
+    const hook = o.webhooks.map((w) => `<div><span class="mono">${esc(w.event)}</span> → ${w.http_status ?? "—"} ${esc(w.result ?? "")}</div>`).join("") || '<span class="muted">waiting for the customer</span>';
+    return `<tr>
+      <td class="mono">${time(o.created_at)}</td>
+      <td><div>${esc(o.customer)} · ${esc(o.merchant)}</div>
+          <div class="flow">${esc(o.description || "")} · <a href="${consoleUrl}/payments/${encodeURIComponent(o.request_id)}" target="_blank" rel="noopener">${esc(o.request_id)}</a></div></td>
+      <td>${esc(o.agent)}</td>
+      <td class="num">${inr(o.amount)}</td>
+      <td><span class="pill ${STATUS[o.status]}">${STATUS_TEXT[o.status]}</span>
+          <div class="flow">${esc(o.method)} · <span class="mono">${esc(o.order_id)}</span></div>
+          ${o.failure_reason ? `<div class="flow">${esc(o.failure_reason)}</div>` : ""}</td>
+      <td>${hook}</td></tr>`;
+  }).join("") : `<tr><td colspan="6" class="empty">No orders yet. When an agent's payment is allowed or approved, it shows up here.</td></tr>`;
+
+  document.getElementById("inbox").innerHTML = s.inbox.length ? s.inbox.map((m) => `
+    <div class="msg">
+      <div class="top">
+        <span class="mono">${time(m.received_at)}</span>
+        <b>${esc(m.agent)}</b>
+        <span class="pill ${PT_STATUS[m.status] || "info"}">${esc(m.status)}</span>
+        <span class="pill ${m.verified ? "ok" : "bad"}">${m.verified ? "✓ signature valid" : "✗ signature invalid"}</span>
+      </div>
+      <div class="flow"><a href="${consoleUrl}/payments/${encodeURIComponent(m.request_id)}" target="_blank" rel="noopener">${esc(m.request_id)}</a></div>
+      <details><summary>payload</summary><pre>${esc(JSON.stringify(m.body, null, 2))}</pre></details>
+    </div>`).join("") : '<div class="empty">No callbacks yet. Approve or reject a payment in the PayTrust console to see one arrive.</div>';
+}
+
+async function tick() {
+  try { render(await (await fetch("/api/state")).json()); }
+  catch { const c = document.getElementById("conn"); c.className = "pill bad"; c.innerHTML = '<span class="dot"></span>DemoPay server unreachable'; }
+}
+tick();
+setInterval(tick, 1500);
+</script>
+</body>
+</html>

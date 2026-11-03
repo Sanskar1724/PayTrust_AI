@@ -1,0 +1,3 @@
+# Everything the demo generates at runtime: database, world file with demo API keys, logs.
+.data/
+__pycache__/
