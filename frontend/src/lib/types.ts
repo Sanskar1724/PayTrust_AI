@@ -98,6 +98,29 @@ export interface Page<T> {
   offset: number;
 }
 
+export type JobStatus = "PENDING" | "RUNNING" | "DONE" | "DEAD";
+
+export interface Job {
+  id: number;
+  kind: string;
+  request_id: string | null;
+  status: JobStatus;
+  attempts: number;
+  max_attempts: number;
+  run_after: string;
+  locked_until: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+  finished_at: string | null;
+}
+
+export interface JobSummary {
+  by_status: Record<JobStatus, number>;
+  by_kind: Record<string, Record<JobStatus, number>>;
+  oldest_pending_at: string | null;
+}
+
 export interface Stats {
   total: number;
   decisions: Record<Decision, number>;
@@ -108,6 +131,7 @@ export interface Stats {
   top_violations: [string, number][];
   top_factors: [string, number][];
   series: { hour: string; ALLOW: number; ASK_USER: number; DENY: number }[];
+  jobs: { pending: number; dead: number };
 }
 
 export interface User {

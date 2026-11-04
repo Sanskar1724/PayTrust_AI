@@ -129,9 +129,8 @@ def test_dead_job_can_be_retried(client, agent_key, monkeypatch):
         jobs.drain(now=_later(60 * hours))
     job = _jobs(rid)[0]
     assert job.status == JobStatus.DEAD
+    assert _payment(rid).order["status"] == "error"
     calls["recovered"] = True  # Razorpay is back
-    with db.session_scope() as session:  # the error marker from on_dead goes away when the retry succeeds
-        session.execute(update(Payment).where(Payment.request_id == rid).values(order=None))
     jobs.retry_dead(job.id, "admin@paytrust.local")
     job = _jobs(rid)[0]
     assert job.status == JobStatus.DONE and job.attempts == 1
@@ -246,3 +245,60 @@ def test_approving_a_just_expired_payment_still_notifies_the_agent(client, agent
     resp = client.post(f"/v1/payments/{rid}/approve", headers=admin_headers)
     assert resp.status_code == 409 and "expired" in resp.text
     assert json.loads(_FakeClient.calls[0]["content"])["status"] == "EXPIRED"
+
+
+# ── Dead-letter API ──
+
+def _kill_an_order(client, agent_key, monkeypatch):
+    calls = _flaky_orders(monkeypatch, failures=10_000)
+    rid = client.post("/v1/payments", json=payment(), headers=agent_key).json()["request_id"]
+    for hours in range(1, 12):
+        jobs.drain(now=_later(60 * hours))
+    return rid, calls
+
+
+def test_dead_letter_api_lists_and_retries(client, agent_key, admin_headers, monkeypatch):
+    rid, calls = _kill_an_order(client, agent_key, monkeypatch)
+    dead = client.get("/v1/jobs", params={"status": "DEAD"}, headers=admin_headers).json()
+    assert dead["total"] == 1 and dead["items"][0]["request_id"] == rid and "503" in dead["items"][0]["last_error"]
+    summary = client.get("/v1/jobs/summary", headers=admin_headers).json()
+    assert summary["by_status"]["DEAD"] == 1 and summary["by_kind"]["order.create"]["DEAD"] == 1
+    assert client.get("/v1/stats", headers=admin_headers).json()["jobs"]["dead"] == 1
+
+    job_id = dead["items"][0]["id"]
+    calls["recovered"] = True
+    retried = client.post(f"/v1/jobs/{job_id}/retry", headers=admin_headers)
+    assert retried.status_code == 200 and retried.json()["status"] == "DONE"
+    assert _payment(rid).order["id"].startswith("order_sim_")  # the error marker was replaced
+    again = client.post(f"/v1/jobs/{job_id}/retry", headers=admin_headers)
+    assert again.status_code == 409  # only dead jobs can be retried
+    assert client.post("/v1/jobs/999999/retry", headers=admin_headers).status_code == 404
+
+
+def test_only_admins_retry_jobs(client, agent_key, admin_headers, monkeypatch):
+    rid, _ = _kill_an_order(client, agent_key, monkeypatch)
+    resp = client.post("/v1/operators", json={"email": "viewer@example.com", "name": "V", "role": "viewer",
+                                              "password": "viewer-pass-123"}, headers=admin_headers)
+    assert resp.status_code == 201
+    token = client.post("/v1/auth/login", json={"email": "viewer@example.com", "password": "viewer-pass-123"}).json()
+    viewer = {"Authorization": f"Bearer {token['access_token']}"}
+    job_id = client.get("/v1/jobs", params={"status": "DEAD"}, headers=viewer).json()["items"][0]["id"]
+    assert client.post(f"/v1/jobs/{job_id}/retry", headers=viewer).status_code == 403
+
+
+def test_recovered_order_tells_the_agent_again(client, agent_key, admin_headers, monkeypatch):
+    """Approved payment whose order died: the agent hears 'order failed', then 'recovered'."""
+    _FakeClient.calls = []
+    monkeypatch.setattr(callbacks.httpx, "Client", _FakeClient)
+    _resolve_to(monkeypatch, "93.184.216.34")
+    calls = _flaky_orders(monkeypatch, failures=10_000)
+    rid = _with_callback(client, agent_key)
+    client.post(f"/v1/payments/{rid}/approve", headers=admin_headers)
+    for hours in range(1, 12):
+        jobs.drain(now=_later(60 * hours))
+    assert json.loads(_FakeClient.calls[-1]["content"])["order"]["status"] == "error"
+    job_id = next(j.id for j in _jobs(rid) if j.kind == "order.create")
+    calls["recovered"] = True
+    assert client.post(f"/v1/jobs/{job_id}/retry", headers=admin_headers).status_code == 200
+    assert len(_FakeClient.calls) == 2
+    assert json.loads(_FakeClient.calls[-1]["content"])["order"]["id"].startswith("order_sim_")

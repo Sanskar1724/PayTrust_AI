@@ -37,10 +37,17 @@ def enqueue_ai(session, request_id: str) -> None:
                  request_id=request_id, dedupe_key=f"{AI_INVESTIGATE}:{request_id}")
 
 
-def enqueue_callback(session, request_id: str) -> None:
-    """One callback per payment: it is sent once the payment is resolved."""
+def enqueue_callback(session, request_id: str, reason: str = "resolved") -> None:
+    """One callback per payment and reason: sent once the payment is resolved, and once more
+    if a failed order is later recovered (reason="order-recovered")."""
+    suffix = "" if reason == "resolved" else f":{reason}"
     jobs.enqueue(session, CALLBACK_NOTIFY, {"request_id": request_id},
-                 request_id=request_id, dedupe_key=f"{CALLBACK_NOTIFY}:{request_id}")
+                 request_id=request_id, dedupe_key=f"{CALLBACK_NOTIFY}:{request_id}{suffix}")
+
+
+def _has_order(payment: Payment) -> bool:
+    """A failed order (status "error", left by a dead job) does not count: a retry replaces it."""
+    return payment.order is not None and payment.order.get("status") != "error"
 
 
 # ── order.create ──
@@ -52,12 +59,13 @@ def _store_order(request_id: str, order: dict, event: str, notify: bool) -> None
         payment = session.scalar(select(Payment).where(Payment.request_id == request_id).with_for_update())
         if payment is None:
             return
-        if payment.order is None:
+        recovered = event == "ORDER_CREATED" and payment.order is not None and not _has_order(payment)
+        if not _has_order(payment):
             payment.order = order
             audit.record(session, "system", event, request_id, order_id=order.get("id"), mode=order.get("mode"),
                          error=order.get("error"))
         if notify:
-            enqueue_callback(session, request_id)
+            enqueue_callback(session, request_id, "order-recovered" if recovered else "resolved")
         updated = summary(payment)
     bus.publish("payment.updated", updated)
     if notify:
@@ -79,7 +87,7 @@ def create_order(job: JobContext) -> None:
         payment = session.scalar(select(Payment).where(Payment.request_id == request_id))
         if payment is None:
             return
-        if payment.status not in PaymentStatus.SUCCESSFUL or payment.order is not None:
+        if payment.status not in PaymentStatus.SUCCESSFUL or _has_order(payment):
             needs_order, amount = False, 0
         else:
             needs_order, amount = True, payment.amount

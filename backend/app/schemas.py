@@ -349,6 +349,23 @@ class AuditOut(BaseModel):
     data: dict[str, Any]
 
 
+class JobOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    kind: str
+    request_id: str | None
+    status: str
+    attempts: int
+    max_attempts: int
+    run_after: datetime
+    locked_until: datetime | None
+    last_error: str | None
+    created_at: datetime
+    updated_at: datetime
+    finished_at: datetime | None
+
+
 class ArenaRunIn(BaseModel):
     scenario: str = "mixed"
     requests: int = Field(default=60, ge=1, le=2000)

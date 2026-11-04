@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
 import {
-  Activity, BookOpen, Bot, BrainCircuit, ClipboardCheck, FlaskConical, LayoutDashboard, LogOut, Menu,
+  Activity, BookOpen, Bot, BrainCircuit, ClipboardCheck, FlaskConical, LayoutDashboard, ListRestart, LogOut, Menu,
   ReceiptText, ScrollText, ShieldCheck, Store, Swords, Users,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -11,7 +11,7 @@ import { useAuth } from "../lib/auth";
 import { useLive } from "../lib/live";
 import type { Stats } from "../lib/types";
 
-interface Item { to: string; label: string; icon: ReactNode; badge?: number }
+interface Item { to: string; label: string; icon: ReactNode; badge?: number; alert?: boolean }
 
 export function Layout() {
   const { operator, logout, can } = useAuth();
@@ -20,6 +20,7 @@ export function Layout() {
   const location = useLocation();
   const stats = useQuery({ queryKey: ["stats"], queryFn: () => api<Stats>("/v1/stats"), refetchInterval: 30_000 });
   const pending = stats.data?.pending_approvals ?? 0;
+  const deadJobs = stats.data?.jobs?.dead ?? 0;
 
   const sections: { title: string; items: Item[] }[] = [
     {
@@ -28,6 +29,7 @@ export function Layout() {
         { to: "/", label: "Overview", icon: <LayoutDashboard className="size-4" /> },
         { to: "/payments", label: "Payments", icon: <ReceiptText className="size-4" /> },
         { to: "/approvals", label: "Approvals", icon: <ClipboardCheck className="size-4" />, badge: pending },
+        { to: "/jobs", label: "Background jobs", icon: <ListRestart className="size-4" />, badge: deadJobs, alert: true },
       ],
     },
     {
@@ -78,7 +80,8 @@ export function Layout() {
                     {item.icon}
                     <span className="flex-1">{item.label}</span>
                     {!!item.badge && (
-                      <span className="rounded-full bg-amber-400 px-1.5 text-[11px] font-semibold text-amber-950">{item.badge}</span>
+                      <span className={clsx("rounded-full px-1.5 text-[11px] font-semibold",
+                        item.alert ? "bg-red-500 text-white" : "bg-amber-400 text-amber-950")}>{item.badge}</span>
                     )}
                   </NavLink>
                 </li>

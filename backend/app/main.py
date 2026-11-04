@@ -19,6 +19,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app import db
 from app.api.routes import arena, auth, directory, health, insights, payments
+from app.api.routes import jobs as jobs_routes
 from app.arena.runner import fail_interrupted_runs
 from app.config import REPO_DIR, get_settings
 from app.errors import AppError
@@ -161,7 +162,7 @@ def create_app(manage_schema: bool = True) -> FastAPI:
         logger.exception("Unhandled error")
         return _error(500, "INTERNAL_ERROR", "Something went wrong. Quote the request id when reporting it.")
 
-    for module in (health, auth, payments, directory, insights, arena):
+    for module in (health, auth, payments, directory, insights, arena, jobs_routes):
         app.include_router(module.router)
 
     if FRONTEND_DIST.is_dir():  # single-service deploys: the API also serves the built UI
