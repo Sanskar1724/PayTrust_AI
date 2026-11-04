@@ -20,6 +20,10 @@ def run_inline(enabled: bool) -> None:
     _run_inline = enabled
 
 
+def is_inline() -> bool:
+    return _run_inline
+
+
 def submit(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Future | None:
     trace_id = get_request_id()
 

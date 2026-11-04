@@ -82,9 +82,18 @@ class Settings(BaseSettings):
 
     # ── Outbound callbacks to agents ──
     CALLBACK_TIMEOUT_SECONDS: float = 5.0
-    CALLBACK_MAX_ATTEMPTS: int = 3
+    CALLBACK_MAX_ATTEMPTS: int = 8  # deliveries (with backoff) before the callback goes to the dead-letter queue
     # Local development only: lets callbacks reach localhost / private networks (SSRF guard off).
     CALLBACK_ALLOW_PRIVATE_NETWORKS: bool = False
+
+    # ── Background jobs (orders, AI explanations, callbacks) ──
+    JOB_MAX_ATTEMPTS: int = 8           # default attempts before a job is dead-lettered
+    JOB_BACKOFF_BASE_SECONDS: float = 5.0   # retry n waits base * 2^(n-1) (+ jitter) …
+    JOB_BACKOFF_MAX_SECONDS: float = 600.0  # … capped here
+    JOB_LEASE_SECONDS: int = 120        # a claimed job not finished by then is retried by any worker
+    JOB_POLL_SECONDS: float = 1.0
+    JOB_CONCURRENCY: int = 4
+    JOBS_WORKER_IN_APP: bool = True     # false: run workers separately (`python -m app.cli worker`)
 
     # ── Agent Arena ──
     ARENA_BASE_URL: str = "http://127.0.0.1:8000"

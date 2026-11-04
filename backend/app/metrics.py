@@ -9,3 +9,4 @@ HTTP_LATENCY = Histogram(
     buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5),
 )
 DECISIONS = Counter("paytrust_decisions_total", "Payment decisions issued", ["decision", "source"])
+JOBS = Counter("paytrust_jobs_total", "Background job outcomes", ["kind", "outcome"])  # done | retry | dead

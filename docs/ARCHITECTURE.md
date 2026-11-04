@@ -12,7 +12,7 @@ flowchart TB
         API[HTTP API /v1]
         EV[Evaluation pipeline]
         AP[Approvals + expiry sweeper]
-        BG[Background tasks<br/>orders · AI · callbacks]
+        BG[Job worker<br/>orders · AI · callbacks]
         AR[Agent Arena runner]
     end
     PG[(PostgreSQL)]
@@ -43,8 +43,20 @@ One image serves the API and the built console from the same origin. Every piece
 2. **Lock the payer.** `SELECT … FOR UPDATE` on the user row. On SQLite, every transaction is `BEGIN IMMEDIATE`. Concurrent payments for one payer run one at a time.
 3. **Gather context, excluding this payment.** Budget used today (in `SPEND_TIMEZONE`, counting ALLOWED + APPROVED + PENDING_APPROVAL), attempts in the last hour, identical payments in the last 10 minutes, and the payer's and merchant's history.
 4. **Policy → Risk → Decision → Counterfactuals.** These are the pure functions in `app/domain/`.
-5. **Write** the payment, its evidence and an audit event in the same transaction. Any failure rolls back and returns an error, never a decision (fail-closed).
-6. **After commit:** publish to the live feed. In the background, create a Razorpay order for ALLOWED payments and write an AI explanation for pending ones.
+5. **Write** the payment, its evidence, an audit event and its follow-up **jobs** in the same transaction: an `order.create` job for ALLOWED payments, an `ai.investigate` job for pending ones. Any failure rolls back and returns an error, never a decision (fail-closed).
+6. **After commit:** publish to the live feed and wake the job worker.
+
+### Background jobs (`app/services/jobs.py`)
+
+Follow-up work is a transactional outbox: a `jobs` row is committed together with the change that needs it, so it exists exactly when the decision does, and survives a crash or restart.
+
+| Job | Created when | On final failure |
+|---|---|---|
+| `order.create` | a payment is ALLOWED, or approved (then it also queues the callback, so the callback carries the order) | the payment gets `order.status = "error"`, audited `ORDER_FAILED`; the agent is still notified |
+| `ai.investigate` | a payment goes to ASK_USER | nothing (the explainer has a deterministic fallback) |
+| `callback.notify` | a pending payment is approved, rejected, blocked at approval, or expires | `CALLBACK_FAILED` after `CALLBACK_MAX_ATTEMPTS`; an unsafe URL is `CALLBACK_BLOCKED` at once |
+
+A worker (in the web process, or separately with `python -m app.cli worker`) claims due jobs with a compare-and-set update and holds a lease (`JOB_LEASE_SECONDS`). If a worker dies mid-job, the lease runs out and any worker retries it. The attempt number fences each claim, so a late, superseded run can't overwrite a newer outcome. Failures retry with exponential backoff and jitter (`JOB_BACKOFF_BASE_SECONDS`, doubling up to `JOB_BACKOFF_MAX_SECONDS`). After `JOB_MAX_ATTEMPTS` the job becomes `DEAD` (the dead-letter queue), audited as `JOB_DEAD`, and an admin can retry it. Handlers are idempotent because delivery is at-least-once.
 
 ### Policy (`app/domain/policy.py`)
 

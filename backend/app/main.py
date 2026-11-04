@@ -24,7 +24,7 @@ from app.config import REPO_DIR, get_settings
 from app.errors import AppError
 from app.log import configure_logging, get_logger, get_request_id, set_request_id
 from app.metrics import HTTP_LATENCY, HTTP_REQUESTS
-from app.services import approvals, seed, tasks
+from app.services import approvals, jobs, seed, tasks
 from app.services.events import bus
 
 logger = get_logger("app")
@@ -68,11 +68,14 @@ async def lifespan(app: FastAPI):
     fail_interrupted_runs()
     bus.start(s.REDIS_URL)
     sweeper = asyncio.create_task(_expiry_sweeper())
+    if s.JOBS_WORKER_IN_APP:
+        jobs.start_worker()  # orders, AI explanations and callbacks queued in the jobs table
     logger.info(f"{s.APP_NAME} {s.APP_VERSION} started ({s.ENVIRONMENT}, {'sqlite' if s.is_sqlite else 'postgres'})")
     try:
         yield
     finally:
         sweeper.cancel()
+        jobs.stop_worker()
         bus.stop()
         tasks.shutdown()
 
