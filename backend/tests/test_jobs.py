@@ -161,13 +161,15 @@ def test_the_worker_thread_runs_queued_jobs(client, agent_key, deferred, monkeyp
     rid = client.post("/v1/payments", json=payment(), headers=agent_key).json()["request_id"]
     jobs.start_worker()
     try:
+        # Wait for the job's final status, not the order: the handler stores the order a moment
+        # before the worker records DONE.
         deadline = time.time() + 10
-        while time.time() < deadline and _payment(rid).order is None:
+        while time.time() < deadline and _jobs(rid)[0].status != JobStatus.DONE:
             time.sleep(0.05)
     finally:
-        jobs.stop_worker()
-    assert _payment(rid).order is not None
+        jobs.stop_worker(wait=True)  # no worker thread may outlive the test
     assert _jobs(rid)[0].status == JobStatus.DONE
+    assert _payment(rid).order is not None
 
 
 # ── Callbacks ──

@@ -250,12 +250,15 @@ class Worker:
             self._thread = threading.Thread(target=self._loop, name="paytrust-jobs", daemon=True)
             self._thread.start()
 
-    def stop(self) -> None:
-        """Stop claiming. Jobs still running finish in the background; one cut off by process
-        exit keeps its lease and is retried by the next worker."""
+    def stop(self, wait: bool = False) -> None:
+        """Stop claiming. With wait=False, jobs still running finish in the background (one cut off
+        by process exit keeps its lease and is retried by the next worker); wait=True blocks until
+        they are done."""
         self._stop.set()
         self._wake.set()
-        self._pool.shutdown(wait=False)
+        if wait and self._thread is not None:
+            self._thread.join()
+        self._pool.shutdown(wait=wait)
 
     def wake(self) -> None:
         self._wake.set()
@@ -297,10 +300,10 @@ def start_worker() -> None:
         _worker.start()
 
 
-def stop_worker() -> None:
+def stop_worker(wait: bool = False) -> None:
     global _worker
     if _worker is not None:
-        _worker.stop()
+        _worker.stop(wait=wait)
         _worker = None
 
 
