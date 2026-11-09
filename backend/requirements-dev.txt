@@ -1,4 +1,5 @@
 -r requirements.txt
 pytest>=8.2
+httpx2>=2.16  # transport for starlette.testclient (plain httpx there is deprecated)
 pytest-cov>=5.0
 ruff>=0.6

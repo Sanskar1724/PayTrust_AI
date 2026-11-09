@@ -22,6 +22,7 @@ DATABASE_URL=postgresql+psycopg://...
 REDIS_URL=redis://...
 SEED_DEMO_DATA=false                   # true for a demo instance
 WEB_CONCURRENCY=2                      # workers per container
+JOBS_WORKER_IN_APP=true                # run background jobs inside the web workers (default)
 RAZORPAY_MODE=simulated | test | live  # test/live need RAZORPAY_KEY_ID, _KEY_SECRET, _WEBHOOK_SECRET
 ```
 
@@ -31,7 +32,7 @@ With `ENVIRONMENT=production`, startup is refused if `SECRET_KEY` or `ADMIN_PASS
 
 * `GET /health`: the process is up (liveness).
 * `GET /ready`: the database (and Redis) are reachable (readiness). Returns 503 if not.
-* `GET /metrics`: Prometheus metrics (request counts and latency by route, decisions by type).
+* `GET /metrics`: Prometheus metrics (request counts and latency by route, decisions by type, background job outcomes `paytrust_jobs_total{kind,outcome}` with outcome `done` / `retry` / `dead`). Alert on a rising `dead` count.
 * Logs are JSON lines with a `request_id`. Every response carries an `X-Request-ID` header.
 
 ## Operations
@@ -39,6 +40,8 @@ With `ENVIRONMENT=production`, startup is refused if `SECRET_KEY` or `ADMIN_PASS
 ```bash
 python -m app.cli init                                     # migrate + bootstrap (idempotent)
 PAYTRUST_PASSWORD=... python -m app.cli create-operator ops@company.com "Ops" reviewer
+python -m app.cli worker                                   # dedicated job worker (with JOBS_WORKER_IN_APP=false on web)
+python -m app.cli drain                                    # run every due background job once, then exit
 alembic revision --autogenerate -m "describe change"       # new migration after model changes
 ```
 

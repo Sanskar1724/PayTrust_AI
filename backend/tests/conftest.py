@@ -15,6 +15,7 @@ os.environ.setdefault("AI_AUTO_INVESTIGATE", "true")
 for key in ("OPENROUTER_API_KEY", "GROQ_API_KEY", "GEMINI_API_KEY", "REDIS_URL"):
     os.environ[key] = ""
 os.environ["RAZORPAY_MODE"] = "simulated"
+os.environ["JOBS_WORKER_IN_APP"] = "false"  # tests run jobs inline (tasks.run_inline) or start a worker explicitly
 os.environ["RAZORPAY_WEBHOOK_SECRET"] = "whsec_test_secret"
 
 from app import db  # noqa: E402

@@ -18,8 +18,8 @@ from app.domain.policy import evaluate_policy
 from app.errors import Conflict, NotFound
 from app.log import get_logger
 from app.models import Agent, ApiKey, Merchant, Payment, PaymentStatus, Policy, User
-from app.services import audit, callbacks, tasks
-from app.services.evaluation import post_process, spent_on, summary
+from app.services import audit, job_handlers, jobs
+from app.services.evaluation import spent_on, summary
 from app.services.events import bus
 
 logger = get_logger("approvals")
@@ -34,7 +34,9 @@ def review(request_id: str, approve: bool, actor: str, note: str | None = None) 
         if payment.status == PaymentStatus.PENDING_APPROVAL and payment.expires_at and payment.expires_at <= now:
             payment.status = PaymentStatus.EXPIRED
             audit.record(session, "system", "APPROVAL_EXPIRED", request_id)
+            job_handlers.enqueue_callback(session, request_id)  # the agent must hear about the expiry too
             session.commit()
+            jobs.kick()
             raise Conflict("This approval request has expired")
         if payment.status != PaymentStatus.PENDING_APPROVAL:
             raise Conflict(f"Payment is {payment.status}; only PENDING_APPROVAL payments can be reviewed")
@@ -45,25 +47,26 @@ def review(request_id: str, approve: bool, actor: str, note: str | None = None) 
             payment.reviewed_at = now
             payment.review_note = "Approval blocked: " + " ".join(blockers)
             audit.record(session, actor, "APPROVAL_BLOCKED", request_id, reasons=blockers, note=note)
+            job_handlers.enqueue_callback(session, request_id)
         else:
             payment.status = PaymentStatus.APPROVED if approve else PaymentStatus.REJECTED
             payment.reviewed_by = actor
             payment.reviewed_at = now
             payment.review_note = note
             audit.record(session, actor, "PAYMENT_APPROVED" if approve else "PAYMENT_REJECTED", request_id, note=note)
+            if approve:  # create the order first; its job then queues the callback, which carries the order
+                job_handlers.enqueue_order(session, request_id, notify=True)
+            else:
+                job_handlers.enqueue_callback(session, request_id)
         event = summary(payment)
 
     bus.publish("payment.updated", event)
+    jobs.kick()
     if blockers:
         logger.warning(f"{request_id} approval by {actor} blocked: {blockers}")
-        tasks.submit(callbacks.notify_agent, request_id)
         raise Conflict("Approval blocked — the payment was rejected because it is no longer permitted: "
                        + " ".join(blockers))
     logger.info(f"{request_id} {'approved' if approve else 'rejected'} by {actor}")
-    if approve:
-        tasks.submit(_approve_followups, request_id)
-    else:
-        tasks.submit(callbacks.notify_agent, request_id)
     return payment
 
 
@@ -103,11 +106,6 @@ def approval_blockers(session: Session, payment: Payment) -> list[str]:
     return blockers
 
 
-def _approve_followups(request_id: str) -> None:
-    post_process(request_id)  # creates the order first, so the callback can include it
-    callbacks.notify_agent(request_id)
-
-
 def expire_due() -> int:
     """Mark overdue pending approvals EXPIRED. Called periodically by the app."""
     now = utcnow()
@@ -121,10 +119,12 @@ def expire_due() -> int:
         for payment in due:
             payment.status = PaymentStatus.EXPIRED
             audit.record(session, "system", "APPROVAL_EXPIRED", payment.request_id)
+            job_handlers.enqueue_callback(session, payment.request_id)
         expired = [summary(p) for p in due]
     for event in expired:
         bus.publish("payment.updated", event)
-        tasks.submit(callbacks.notify_agent, event["request_id"])
+    if expired:
+        jobs.kick()
     if expired:
         logger.info(f"Expired {len(expired)} pending approvals")
     return len(expired)

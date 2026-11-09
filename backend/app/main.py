@@ -19,12 +19,13 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app import db
 from app.api.routes import arena, auth, directory, health, insights, payments
+from app.api.routes import jobs as jobs_routes
 from app.arena.runner import fail_interrupted_runs
 from app.config import REPO_DIR, get_settings
 from app.errors import AppError
 from app.log import configure_logging, get_logger, get_request_id, set_request_id
 from app.metrics import HTTP_LATENCY, HTTP_REQUESTS
-from app.services import approvals, seed, tasks
+from app.services import approvals, jobs, seed, tasks
 from app.services.events import bus
 
 logger = get_logger("app")
@@ -68,11 +69,14 @@ async def lifespan(app: FastAPI):
     fail_interrupted_runs()
     bus.start(s.REDIS_URL)
     sweeper = asyncio.create_task(_expiry_sweeper())
+    if s.JOBS_WORKER_IN_APP:
+        jobs.start_worker()  # orders, AI explanations and callbacks queued in the jobs table
     logger.info(f"{s.APP_NAME} {s.APP_VERSION} started ({s.ENVIRONMENT}, {'sqlite' if s.is_sqlite else 'postgres'})")
     try:
         yield
     finally:
         sweeper.cancel()
+        jobs.stop_worker()
         bus.stop()
         tasks.shutdown()
 
@@ -158,7 +162,7 @@ def create_app(manage_schema: bool = True) -> FastAPI:
         logger.exception("Unhandled error")
         return _error(500, "INTERNAL_ERROR", "Something went wrong. Quote the request id when reporting it.")
 
-    for module in (health, auth, payments, directory, insights, arena):
+    for module in (health, auth, payments, directory, insights, arena, jobs_routes):
         app.include_router(module.router)
 
     if FRONTEND_DIST.is_dir():  # single-service deploys: the API also serves the built UI

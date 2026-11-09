@@ -13,6 +13,7 @@ import { Agents } from "./pages/Agents";
 import { Approvals } from "./pages/Approvals";
 import { Arena } from "./pages/Arena";
 import { Audit } from "./pages/Audit";
+import { Jobs } from "./pages/Jobs";
 import { Directory } from "./pages/Directory";
 import { Login } from "./pages/Login";
 import { Model } from "./pages/Model";
@@ -61,6 +62,7 @@ function App() {
           <Route path="directory" element={<Directory />} />
           <Route path="team" element={<RequireAuth role="admin"><Team /></RequireAuth>} />
           <Route path="audit" element={<Audit />} />
+          <Route path="jobs" element={<Jobs />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

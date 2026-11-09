@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import utcnow
-from app.models import Payment, PaymentStatus
+from app.models import Job, JobStatus, Payment, PaymentStatus
 
 WINDOW_HOURS = 24
 MAX_ROWS = 20_000
@@ -54,6 +54,9 @@ def dashboard(session: Session) -> dict[str, Any]:
         select(func.count()).select_from(Payment).where(
             Payment.status == PaymentStatus.PENDING_APPROVAL, Payment.source != "arena")
     )
+    job_counts = dict(session.execute(
+        select(Job.status, func.count()).where(Job.status.in_((JobStatus.PENDING, JobStatus.DEAD))).group_by(Job.status)
+    ).all())
     latencies = [r.processing_ms for r in rows]
     return {
         "window_hours": WINDOW_HOURS,
@@ -67,4 +70,5 @@ def dashboard(session: Session) -> dict[str, Any]:
         "top_violations": violations.most_common(6),
         "top_factors": factors.most_common(6),
         "series": [{"hour": k, **v} for k, v in buckets.items()],
+        "jobs": {"pending": int(job_counts.get(JobStatus.PENDING, 0)), "dead": int(job_counts.get(JobStatus.DEAD, 0))},
     }

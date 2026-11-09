@@ -36,7 +36,7 @@ from app.log import get_logger
 from app.metrics import DECISIONS
 from app.models import Agent, Merchant, Payment, PaymentStatus, Policy, User
 from app.schemas import PaymentIn
-from app.services import audit, tasks
+from app.services import audit, job_handlers, jobs
 from app.services.events import bus
 
 logger = get_logger("evaluation")
@@ -185,6 +185,11 @@ def _evaluate_in_session(session: Session, req: PaymentIn, agent_id: int, key_ag
     )
     payment.processing_ms = round((time.perf_counter() - started) * 1000, 2)
     session.add(payment)
+    # Follow-up work is queued in this same transaction: it exists if and only if the decision does.
+    if status in PaymentStatus.SUCCESSFUL:
+        job_handlers.enqueue_order(session, req.request_id)
+    elif status == PaymentStatus.PENDING_APPROVAL and get_settings().AI_AUTO_INVESTIGATE:
+        job_handlers.enqueue_ai(session, req.request_id)
     audit.record(session, actor, "PAYMENT_EVALUATED", req.request_id, decision=decision["decision"],
                  status=status, amount=req.amount, risk_score=decision["risk_score"], source=source)
     session.flush()
@@ -216,46 +221,8 @@ def evaluate_payment(req: PaymentIn, *, key_agent_id: int | None, source: str, a
         logger.info(f"{payment.request_id} → {payment.decision} risk={payment.risk_score} in {payment.processing_ms}ms")
         DECISIONS.labels(payment.decision, source).inc()
         bus.publish("payment.created", summary(payment))
-        tasks.submit(post_process, payment.request_id)
+        jobs.kick()
     return payment, created
-
-
-def post_process(request_id: str) -> None:
-    """Follow-up work off the request path: Razorpay order for approved money movement,
-    AI explanation for payments waiting on a human. Safe to run more than once."""
-    from app.services import ai, razorpay
-
-    s = get_settings()
-    with session_scope() as session:
-        payment = session.scalar(select(Payment).where(Payment.request_id == request_id))
-        if payment is None:
-            return
-        amount = payment.amount
-        needs_order = payment.status in PaymentStatus.SUCCESSFUL and payment.order is None
-        needs_ai = payment.status == PaymentStatus.PENDING_APPROVAL and payment.ai is None and s.AI_AUTO_INVESTIGATE
-        facts = facts_for(session, payment) if needs_ai else None
-
-    order = None
-    if needs_order:
-        try:
-            order = razorpay.create_order(request_id, amount, {"paytrust_request_id": request_id})
-        except Exception as exc:
-            order = {"status": "error", "error": str(exc)[:300]}
-            logger.warning(f"Order creation failed for {request_id}: {exc}")
-    ai_result = ai.get_investigator().investigate(facts) if facts else None
-
-    if order is None and ai_result is None:
-        return
-    with session_scope() as session:
-        payment = session.scalar(select(Payment).where(Payment.request_id == request_id).with_for_update())
-        if order is not None and payment.order is None:
-            payment.order = order
-            audit.record(session, "system", "ORDER_CREATED" if order.get("status") != "error" else "ORDER_FAILED",
-                         request_id, order_id=order.get("id"), mode=order.get("mode"))
-        if ai_result is not None and payment.ai is None:
-            payment.ai = ai_result
-        updated = summary(payment)
-    bus.publish("payment.updated", updated)
 
 
 def investigate_now(request_id: str, actor: str) -> Payment:

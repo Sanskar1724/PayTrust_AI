@@ -203,6 +203,38 @@ class AuditEvent(Base):
     data: Mapped[dict] = mapped_column(JSONType, default=dict)
 
 
+class JobStatus:
+    PENDING = "PENDING"   # waiting for run_after
+    RUNNING = "RUNNING"   # claimed by a worker until locked_until (then reclaimable)
+    DONE = "DONE"
+    DEAD = "DEAD"         # retries exhausted or permanent failure: the dead-letter queue
+
+    ALL = (PENDING, RUNNING, DONE, DEAD)
+
+
+class Job(Base):
+    """Durable background work (transactional outbox): written in the same transaction as the
+    change that needs it, executed by a worker with retries. See services/jobs.py."""
+
+    __tablename__ = "jobs"
+    __table_args__ = (Index("ix_jobs_status_run_after", "status", "run_after"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(40), index=True)
+    dedupe_key: Mapped[str | None] = mapped_column(String(160), unique=True, nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    payload: Mapped[dict] = mapped_column(JSONType, default=dict)
+    status: Mapped[str] = mapped_column(String(10), default=JobStatus.PENDING)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=8)
+    run_after: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    locked_until: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+
 class WebhookEvent(Base):
     """Inbound Razorpay webhook — event_id uniqueness gives idempotency."""
 
