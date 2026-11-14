@@ -128,6 +128,8 @@ class Policy(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True)
     daily_limit: Mapped[int] = mapped_column(Integer)
+    weekly_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)   # None = no weekly limit
+    monthly_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = no monthly limit
     max_transaction: Mapped[int] = mapped_column(Integer)
     approval_threshold: Mapped[int] = mapped_column(Integer)
     allowed_categories: Mapped[list[str]] = mapped_column(JSONType, default=list)
@@ -143,6 +145,8 @@ class Policy(Base):
             "user_id": self.user_id,
             "agent_id": self.agent_id,
             "daily_limit": self.daily_limit,
+            "weekly_limit": self.weekly_limit,
+            "monthly_limit": self.monthly_limit,
             "max_transaction": self.max_transaction,
             "approval_threshold": self.approval_threshold,
             "allowed_categories": list(self.allowed_categories or []),

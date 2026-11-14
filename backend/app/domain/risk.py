@@ -128,6 +128,11 @@ def assess_risk(
     policy_points = {
         "max_transaction_exceeded": ("high", 20, "Amount exceeds the policy maximum"),
         "daily_limit_exceeded": ("high", 18, "Daily limit would be exceeded"),
+        "weekly_limit_exceeded": ("high", 18, "Weekly limit would be exceeded"),
+        "monthly_limit_exceeded": ("high", 18, "Monthly limit would be exceeded"),
+        "user_daily_budget_exceeded": ("high", 18, "The user's overall daily budget would be exceeded"),
+        "user_weekly_budget_exceeded": ("high", 18, "The user's overall weekly budget would be exceeded"),
+        "user_monthly_budget_exceeded": ("high", 18, "The user's overall monthly budget would be exceeded"),
         "category_blocked": ("critical", 25, "Category is blocked by policy"),
         "merchant_category_blocked": ("critical", 25, "Merchant's real category is blocked by policy"),
         "category_not_allowed": ("high", 15, "Category is not in the allowlist"),

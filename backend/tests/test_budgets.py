@@ -1,12 +1,15 @@
 """Per-agent limits + the optional user budget across all of a user's agents."""
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 
 from app import db
 from app.db import utcnow
 from app.domain.policy import DEFAULT_RULES, Spend, evaluate_policy
 from app.models import AuditEvent, Payment, PaymentStatus
+from app.services import evaluation
 from app.services.evaluation import period_bounds, spend_snapshot
 from tests.conftest import payment
 
@@ -138,3 +141,45 @@ def test_budget_api_validates_and_audits(client, admin_headers):
     assert client.patch("/v1/users/999", json={"daily_budget": 1}, headers=admin_headers).status_code == 404
     with db.session_scope() as session:
         assert session.scalar(select(AuditEvent.id).where(AuditEvent.event_type == "USER_UPDATED"))
+
+
+# ── Weekly / monthly limits per policy ──
+
+def test_weekly_and_monthly_policy_limits():
+    rules = {**DEFAULT_RULES.summary(), "weekly_limit": 50_000, "monthly_limit": 1_20_000}
+    pay = {"amount": 10_000, "category": "electronics", "merchant_id": 1, "merchant_name": "TechMart"}
+    assert evaluate_policy(rules, pay, agent_spend=Spend(day=0, week=40_000, month=1_00_000))["authorized"]
+    week = evaluate_policy(rules, pay, agent_spend=Spend(day=0, week=40_001, month=40_001))
+    assert week["violations"] == ["weekly_limit_exceeded"]
+    assert week["reasons"][0].startswith("Weekly limit INR 50,000 exceeded: INR 40,001 already used this week")
+    month = evaluate_policy(rules, pay, agent_spend=Spend(day=0, week=0, month=1_15_000))
+    assert month["violations"] == ["monthly_limit_exceeded"]
+    no_limits = evaluate_policy(DEFAULT_RULES.summary(), pay, agent_spend=Spend(day=0, week=10**7, month=10**7))
+    assert no_limits["authorized"]  # weekly/monthly limits are optional
+
+
+def test_weekly_limit_through_the_api(client, agent_key, admin_headers, monkeypatch):
+    """Spend earlier in the same week counts toward the weekly limit, not toward today's."""
+    thursday = datetime(2026, 11, 12, 6, 0, tzinfo=UTC)  # 11:30 in Asia/Kolkata
+    monkeypatch.setattr(evaluation, "utcnow", lambda: thursday)
+    policy = {"user_id": 1, "agent_id": 1, "daily_limit": 20_000, "weekly_limit": 20_000, "monthly_limit": 80_000,
+              "max_transaction": 20_000, "approval_threshold": 20_000,
+              "allowed_categories": ["electronics", "books"], "blocked_categories": ["gambling"]}
+    saved = client.put("/v1/policies", json=policy, headers=admin_headers)
+    assert saved.status_code == 200 and saved.json()["weekly_limit"] == 20_000
+    with db.session_scope() as session:
+        session.add(_row("r_tuesday", "2026-11-10", 1, 15_000))  # same week, earlier day
+    body = client.post("/v1/payments", json=payment(amount=6_000), headers=agent_key).json()
+    assert body["policy_result"]["daily_spent"] == 0  # nothing yet today…
+    assert body["policy_result"]["spend"]["agent"]["week"] == 15_000  # …but 15,000 this week
+    assert body["policy_result"]["violations"] == ["weekly_limit_exceeded"]
+    assert any(f["details"] == "Weekly limit would be exceeded" for f in body["risk_result"]["factors"])
+
+
+def test_policy_period_limits_must_be_ordered(client, admin_headers):
+    base = {"user_id": 1, "agent_id": 1, "daily_limit": 10_000, "max_transaction": 5_000, "approval_threshold": 4_000}
+    bad = client.put("/v1/policies", json=base | {"weekly_limit": 9_000}, headers=admin_headers)
+    assert bad.status_code == 422 and "daily_limit cannot exceed weekly_limit" in bad.text
+    bad = client.put("/v1/policies", json=base | {"weekly_limit": 50_000, "monthly_limit": 40_000}, headers=admin_headers)
+    assert bad.status_code == 422 and "weekly_limit cannot exceed monthly_limit" in bad.text
+    assert client.put("/v1/policies", json=base | {"monthly_limit": 10_000}, headers=admin_headers).status_code == 200

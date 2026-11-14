@@ -64,6 +64,7 @@ A worker (in the web process, or separately with `python -m app.cli worker`) cla
 |---|---|
 | `max_transaction_exceeded` | amount > max per payment |
 | `daily_limit_exceeded` | this agent's spend today + amount > the policy's daily limit (other agents' spending doesn't count) |
+| `weekly_limit_exceeded` / `monthly_limit_exceeded` | the same for the optional `weekly_limit` (Monday–Sunday) and `monthly_limit` (calendar month); limits must be ordered daily ≤ weekly ≤ monthly |
 | `user_daily_budget_exceeded` / `user_weekly_budget_exceeded` / `user_monthly_budget_exceeded` | the user's optional overall budget (`PATCH /v1/users/{id}`): all agents' spend in the period + amount > the cap |
 | `category_blocked` / `category_not_allowed` | category the agent claims vs. the policy lists |
 | `merchant_category_blocked` | the merchant's **registered** category is blocked, whatever the agent claims |

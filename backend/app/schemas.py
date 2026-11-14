@@ -328,6 +328,8 @@ class PolicyIn(BaseModel):
     user_id: int = Field(ge=1)
     agent_id: int = Field(ge=1)
     daily_limit: int = Field(ge=0, le=MAX_AMOUNT)
+    weekly_limit: int | None = Field(default=None, ge=0, le=MAX_AMOUNT, description="This agent's spend per Monday–Sunday week; null = none")
+    monthly_limit: int | None = Field(default=None, ge=0, le=MAX_AMOUNT, description="This agent's spend per calendar month; null = none")
     max_transaction: int = Field(ge=0, le=MAX_AMOUNT)
     approval_threshold: int = Field(ge=0, le=MAX_AMOUNT)
     allowed_categories: list[str] = []
@@ -347,6 +349,11 @@ class PolicyIn(BaseModel):
             raise ValueError("max_transaction cannot exceed daily_limit")
         if self.approval_threshold > self.max_transaction:
             raise ValueError("approval_threshold cannot exceed max_transaction")
+        periods = [("daily_limit", self.daily_limit), ("weekly_limit", self.weekly_limit),
+                   ("monthly_limit", self.monthly_limit)]
+        for (small, a), (big, b) in pairwise([(n, v) for n, v in periods if v is not None]):
+            if a > b:
+                raise ValueError(f"{small} cannot exceed {big}")
         overlap = set(self.allowed_categories) & set(self.blocked_categories)
         if overlap:
             raise ValueError(f"categories cannot be both allowed and blocked: {sorted(overlap)}")

@@ -7,6 +7,8 @@ Rules (all from the user+agent policy row):
   * merchant's registered category is blocked      → merchant_category_blocked
   * merchant blocked / not in merchant allowlist   → merchant_blocked / merchant_not_allowed
   * this agent's spend today + amount > daily_limit → daily_limit_exceeded
+  * … this week / this month > weekly_limit / monthly_limit (optional)
+                                                   → weekly_limit_exceeded / monthly_limit_exceeded
   * policy inactive                                → agent_unauthorized
 
 User budget (optional, on the user; caps ALL of the user's agents together):
@@ -53,6 +55,8 @@ class PolicyRules:
     allowed_merchants: tuple[str, ...] | None = None
     blocked_merchants: tuple[str, ...] | None = None
     is_active: bool = True
+    weekly_limit: int | None = None
+    monthly_limit: int | None = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> PolicyRules:
@@ -68,6 +72,8 @@ class PolicyRules:
             allowed_merchants=tuple(str(m) for m in d["allowed_merchants"]) if d.get("allowed_merchants") else None,
             blocked_merchants=tuple(str(m) for m in d["blocked_merchants"]) if d.get("blocked_merchants") else None,
             is_active=bool(d.get("is_active", True)),
+            weekly_limit=int(d["weekly_limit"]) if d.get("weekly_limit") is not None else None,
+            monthly_limit=int(d["monthly_limit"]) if d.get("monthly_limit") is not None else None,
         )
 
     def summary(self) -> dict[str, Any]:
@@ -77,6 +83,8 @@ class PolicyRules:
             "approval_threshold": self.approval_threshold,
             "allowed_categories": list(self.allowed_categories),
             "blocked_categories": list(self.blocked_categories),
+            "weekly_limit": self.weekly_limit,
+            "monthly_limit": self.monthly_limit,
         }
 
 
@@ -189,6 +197,16 @@ def evaluate_policy(
                 f"Daily limit INR {rules.daily_limit:,} exceeded: INR {daily_spent:,} already used today "
                 f"by this agent + INR {amount:,} = INR {projected:,}."
             )
+        for limit, used, code, name, label in (
+            (rules.weekly_limit, agent_spend.week, "weekly_limit_exceeded", "Weekly", "this week"),
+            (rules.monthly_limit, agent_spend.month, "monthly_limit_exceeded", "Monthly", "this month"),
+        ):
+            if limit is not None and used + amount > limit:
+                violations.append(code)
+                reasons.append(
+                    f"{name} limit INR {limit:,} exceeded: INR {used:,} already used {label} "
+                    f"by this agent + INR {amount:,} = INR {used + amount:,}."
+                )
         totals = user_spend or agent_spend
         for key, period, label in BUDGET_PERIODS:
             cap = budget.get(key)
