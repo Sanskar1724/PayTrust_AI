@@ -19,7 +19,7 @@ from app.errors import Conflict, NotFound
 from app.log import get_logger
 from app.models import Agent, ApiKey, Merchant, Payment, PaymentStatus, Policy, User
 from app.services import audit, job_handlers, jobs
-from app.services.evaluation import spent_on, summary
+from app.services.evaluation import spend_snapshot, summary
 from app.services.events import bus
 
 logger = get_logger("approvals")
@@ -80,7 +80,8 @@ def approval_blockers(session: Session, payment: Payment) -> list[str]:
         key = session.get(ApiKey, payment.api_key_id)
         if key is None or key.revoked_at is not None:
             blockers.append("The API key that submitted this payment has been revoked.")
-    if session.get(User, payment.user_id) is None:
+    user = session.get(User, payment.user_id)
+    if user is None:
         blockers.append(f"User {payment.user_id} no longer exists.")
     merchant = session.get(Merchant, payment.merchant_id)
     if merchant is None:
@@ -91,8 +92,9 @@ def approval_blockers(session: Session, payment: Payment) -> list[str]:
         blockers.append("The policy for this user and agent was removed.")
         return blockers
 
-    # This payment already reserves its amount; measure everything else spent that day.
-    others = spent_on(session, payment.user_id, payment.spend_day, exclude_payment_id=payment.id)
+    # This payment already reserves its amount; measure everything else spent in its periods.
+    agent_spend, user_spend = spend_snapshot(session, payment.user_id, payment.agent_id, payment.spend_day,
+                                             exclude_payment_id=payment.id)
     facts = {
         "amount": payment.amount,
         "category": payment.category,
@@ -100,7 +102,8 @@ def approval_blockers(session: Session, payment: Payment) -> list[str]:
         "merchant_name": merchant.name if merchant else payment.merchant_name,
         "merchant_category": merchant.category if merchant else None,
     }
-    result = evaluate_policy(policy.as_rules(), facts, others)
+    result = evaluate_policy(policy.as_rules(), facts, agent_spend=agent_spend, user_spend=user_spend,
+                             user_budget=user.budget() if user else None)
     # Each violation appends exactly one reason, in order, before any informational note.
     blockers.extend(result["reasons"][:len(result["violations"])])
     return blockers

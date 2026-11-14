@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from itertools import pairwise
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
@@ -205,10 +206,34 @@ class OperatorIn(BaseModel):
 
 # ── Users / agents / merchants / policies ──
 
-class UserIn(BaseModel):
+class UserBudget(BaseModel):
+    """Optional overall budget across ALL of a user's agents. null = no cap for that period."""
+
+    daily_budget: int | None = Field(default=None, ge=0, le=MAX_AMOUNT)
+    weekly_budget: int | None = Field(default=None, ge=0, le=MAX_AMOUNT)
+    monthly_budget: int | None = Field(default=None, ge=0, le=MAX_AMOUNT)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> UserBudget:
+        caps = [("daily", self.daily_budget), ("weekly", self.weekly_budget), ("monthly", self.monthly_budget)]
+        set_caps = [(n, v) for n, v in caps if v is not None]
+        for (small, a), (big, b) in pairwise(set_caps):
+            if a > b:
+                raise ValueError(f"{small}_budget cannot exceed {big}_budget")
+        return self
+
+
+class UserIn(UserBudget):
     name: str = Field(min_length=1, max_length=120)
     email: EmailStr | None = None
     external_ref: str | None = Field(default=None, max_length=120)
+
+
+class UserPatch(UserBudget):
+    """Fields left out are unchanged; send null to remove a budget cap."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    email: EmailStr | None = None
 
 
 class UserOut(UserIn):
@@ -217,6 +242,10 @@ class UserOut(UserIn):
     id: int
     email: str | None = None
     created_at: datetime
+
+    @model_validator(mode="after")
+    def _ordered(self) -> UserOut:  # stored rows are trusted
+        return self
 
 
 class AgentIn(BaseModel):

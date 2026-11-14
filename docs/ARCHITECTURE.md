@@ -41,7 +41,7 @@ One image serves the API and the built console from the same origin. Every piece
 
 1. **Idempotency.** If `request_id` already exists with the same body hash, return the stored decision (HTTP 200). With a different body, return 409.
 2. **Lock the payer.** `SELECT … FOR UPDATE` on the user row. On SQLite, every transaction is `BEGIN IMMEDIATE`. Concurrent payments for one payer run one at a time.
-3. **Gather context, excluding this payment.** Budget used today (in `SPEND_TIMEZONE`, counting ALLOWED + APPROVED + PENDING_APPROVAL), attempts in the last hour, identical payments in the last 10 minutes, and the payer's and merchant's history.
+3. **Gather context, excluding this payment.** Spend for the day, the week (Monday–Sunday) and the calendar month, all in `SPEND_TIMEZONE` and counting ALLOWED + APPROVED + PENDING_APPROVAL: once for **this agent** (for the policy's limits) and once for **all of the user's agents** (for the user budget). Also attempts in the last hour, identical payments in the last 10 minutes, and the payer's and merchant's history.
 4. **Policy → Risk → Decision → Counterfactuals.** These are the pure functions in `app/domain/`.
 5. **Write** the payment, its evidence, an audit event and its follow-up **jobs** in the same transaction: an `order.create` job for ALLOWED payments, an `ai.investigate` job for pending ones. Any failure rolls back and returns an error, never a decision (fail-closed).
 6. **After commit:** publish to the live feed and wake the job worker.
@@ -63,7 +63,8 @@ A worker (in the web process, or separately with `python -m app.cli worker`) cla
 | Violation | Rule |
 |---|---|
 | `max_transaction_exceeded` | amount > max per payment |
-| `daily_limit_exceeded` | used today + amount > daily limit |
+| `daily_limit_exceeded` | this agent's spend today + amount > the policy's daily limit (other agents' spending doesn't count) |
+| `user_daily_budget_exceeded` / `user_weekly_budget_exceeded` / `user_monthly_budget_exceeded` | the user's optional overall budget (`PATCH /v1/users/{id}`): all agents' spend in the period + amount > the cap |
 | `category_blocked` / `category_not_allowed` | category the agent claims vs. the policy lists |
 | `merchant_category_blocked` | the merchant's **registered** category is blocked, whatever the agent claims |
 | `merchant_blocked` / `merchant_not_allowed` | merchant lists, matched on the merchant's id or **registered** name (case-insensitive), never the name the agent sends |

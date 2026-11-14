@@ -67,7 +67,14 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(120))
     email: Mapped[str | None] = mapped_column(String(254), nullable=True)
     external_ref: Mapped[str | None] = mapped_column(String(120), unique=True, nullable=True)
+    # Optional overall budget across ALL of this user's agents (None = no cap).
+    daily_budget: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    weekly_budget: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    monthly_budget: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+    def budget(self) -> dict[str, int | None]:
+        return {"daily": self.daily_budget, "weekly": self.weekly_budget, "monthly": self.monthly_budget}
 
 
 class Agent(Base):

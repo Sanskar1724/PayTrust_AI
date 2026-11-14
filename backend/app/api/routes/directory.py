@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -21,8 +22,10 @@ from app.schemas import (
     MerchantOut,
     PolicyIn,
     PolicyOut,
+    UserBudget,
     UserIn,
     UserOut,
+    UserPatch,
 )
 from app.services import audit
 from app.services.security import generate_api_key, new_webhook_secret
@@ -56,6 +59,29 @@ def create_user(body: UserIn, op: Operator = Depends(admin), session: Session = 
     session.add(user)
     _flush(session, "A user with this external_ref")
     audit.record(session, op.email, "USER_CREATED", None, user_id=user.id)
+    return user
+
+
+@router.patch("/users/{user_id}", response_model=UserOut,
+              summary="Update a user: name, email, or the overall budget across all their agents")
+def update_user(user_id: int, body: UserPatch, op: Operator = Depends(admin),
+                session: Session = Depends(get_session)):
+    user = session.get(User, user_id)
+    if user is None:
+        raise NotFound("User not found")
+    changes = body.model_dump(exclude_unset=True)
+    if "name" in changes and changes["name"] is None:
+        raise ValidationFailed("name cannot be empty")
+    before = user.budget()
+    for field, value in changes.items():
+        setattr(user, field, value)
+    try:  # a partial update must still leave daily <= weekly <= monthly
+        UserBudget.model_validate({f"{k}_budget": v for k, v in user.budget().items()})
+    except PydanticValidationError as exc:
+        raise ValidationFailed(exc.errors()[0]["msg"].removeprefix("Value error, ")) from exc
+    audit.record(session, op.email, "USER_UPDATED", None, user_id=user_id, changes=changes,
+                 budget_before=before, budget_after=user.budget())
+    session.flush()
     return user
 
 

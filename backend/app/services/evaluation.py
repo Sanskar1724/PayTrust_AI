@@ -16,7 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -29,7 +29,7 @@ from app.db import session_scope, utcnow
 from app.domain.counterfactual import simulate
 from app.domain.decision import decide
 from app.domain.explain import build_facts
-from app.domain.policy import evaluate_policy
+from app.domain.policy import Spend, evaluate_policy
 from app.domain.risk import DUPLICATE_WINDOW_MINUTES, assess_risk
 from app.errors import Conflict, NotFound, ValidationFailed
 from app.log import get_logger
@@ -57,21 +57,50 @@ def body_hash(data: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def spent_on(session: Session, user_id: int, day: str, exclude_payment_id: int | None = None) -> int:
-    """Budget the payer has used or reserved on `day` (ALLOWED + PENDING_APPROVAL + APPROVED)."""
-    stmt = select(func.coalesce(func.sum(Payment.amount), 0)).where(
+def period_bounds(day: str) -> dict[str, tuple[str, str]]:
+    """The day, its Monday–Sunday week and its calendar month, as inclusive spend_day ranges."""
+    d = date.fromisoformat(day)
+    week_start = d - timedelta(days=d.weekday())
+    month_start = d.replace(day=1)
+    next_month = (month_start + timedelta(days=32)).replace(day=1)
+    return {
+        "day": (day, day),
+        "week": (week_start.isoformat(), (week_start + timedelta(days=6)).isoformat()),
+        "month": (month_start.isoformat(), (next_month - timedelta(days=1)).isoformat()),
+    }
+
+
+def spend_snapshot(session: Session, user_id: int, agent_id: int, day: str,
+                   exclude_payment_id: int | None = None) -> tuple[Spend, Spend]:
+    """(this agent's spend, the user's spend across all agents) for the day, week and month that
+    contain `day`. Counts ALLOWED + PENDING_APPROVAL + APPROVED; never the excluded payment."""
+    bounds = period_bounds(day)
+    lo = min(b[0] for b in bounds.values())
+    hi = max(b[1] for b in bounds.values())
+    stmt = select(Payment.spend_day, Payment.agent_id, Payment.amount).where(
         Payment.user_id == user_id,
-        Payment.spend_day == day,
+        Payment.spend_day >= lo,
+        Payment.spend_day <= hi,
         Payment.status.in_(PaymentStatus.COUNTS_TOWARD_SPEND),
     )
     if exclude_payment_id is not None:
         stmt = stmt.where(Payment.id != exclude_payment_id)
-    return int(session.scalar(stmt) or 0)
+    agent = {p: 0 for p in bounds}
+    total = {p: 0 for p in bounds}
+    for spent_day, pay_agent, amount in session.execute(stmt):
+        for period, (start, end) in bounds.items():
+            if start <= spent_day <= end:
+                total[period] += amount
+                if pay_agent == agent_id:
+                    agent[period] += amount
+    return Spend(**agent), Spend(**total)
 
 
-def gather_context(session: Session, user_id: int, merchant_id: int, amount: int, now) -> dict[str, Any]:
+def gather_context(session: Session, user_id: int, agent_id: int, merchant_id: int, amount: int,
+                   now) -> dict[str, Any]:
     """Payer history, read inside the locked transaction. The new payment is not yet written."""
-    daily_spent = spent_on(session, user_id, spend_day(now))
+    agent_spend, user_spend = spend_snapshot(session, user_id, agent_id, spend_day(now))
+    daily_spent = agent_spend.day
     attempts_last_hour = session.scalar(
         select(func.count()).select_from(Payment).where(
             Payment.user_id == user_id, Payment.created_at >= now - timedelta(hours=1)
@@ -99,6 +128,8 @@ def gather_context(session: Session, user_id: int, merchant_id: int, amount: int
     )
     return {
         "daily_spent": int(daily_spent or 0),
+        "agent_spend": agent_spend,
+        "user_spend": user_spend,
         "transactions_last_hour": int(attempts_last_hour or 0),
         "duplicates_recent": int(duplicates or 0),
         "user_total_txns": int(successful or 0),
@@ -134,7 +165,7 @@ def _evaluate_in_session(session: Session, req: PaymentIn, agent_id: int, key_ag
     if merchant is None:
         preconditions.append(("missing_merchant", f"Merchant {req.merchant_id} does not exist."))
 
-    context = gather_context(session, req.user_id, req.merchant_id, req.amount, now)
+    context = gather_context(session, req.user_id, agent_id, req.merchant_id, req.amount, now)
     context["daily_limit"] = policy.daily_limit if policy else None
 
     # The agent supplies merchant_name, but only the registered name is trusted for policy
@@ -147,7 +178,9 @@ def _evaluate_in_session(session: Session, req: PaymentIn, agent_id: int, key_ag
         "merchant_risk_tier": merchant.risk_tier if merchant else None,
     }
     policy_result = evaluate_policy(policy.as_rules() if policy else None, payment_facts,
-                                    context["daily_spent"], preconditions)
+                                    preconditions=preconditions, agent_spend=context.pop("agent_spend"),
+                                    user_spend=context.pop("user_spend"),
+                                    user_budget=user.budget() if user else None)
     risk_result = assess_risk(payment_facts, policy_result, context)
     risk_result["context"] = {k: v for k, v in context.items() if k != "daily_limit"}
     decision = decide(policy_result, risk_result)

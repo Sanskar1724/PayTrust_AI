@@ -6,8 +6,18 @@ Rules (all from the user+agent policy row):
   * category not in allowed_categories (if set)    → category_not_allowed
   * merchant's registered category is blocked      → merchant_category_blocked
   * merchant blocked / not in merchant allowlist   → merchant_blocked / merchant_not_allowed
-  * spent_today + amount > daily_limit             → daily_limit_exceeded
+  * this agent's spend today + amount > daily_limit → daily_limit_exceeded
   * policy inactive                                → agent_unauthorized
+
+User budget (optional, on the user; caps ALL of the user's agents together):
+  * user's spend today / this week / this month + amount > budget
+                                                   → user_daily_budget_exceeded /
+                                                     user_weekly_budget_exceeded /
+                                                     user_monthly_budget_exceeded
+
+Spend counts ALLOWED + APPROVED + PENDING_APPROVAL (a pending payment reserves its amount)
+and always EXCLUDES the payment being evaluated. Weeks run Monday–Sunday and months are
+calendar months, both in SPEND_TIMEZONE.
   * amount > approval_threshold                    → requires_approval (not a violation)
 
 Preconditions found by the caller (unknown user, inactive agent, …) are passed in and
@@ -15,8 +25,22 @@ always make the result unauthorized.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
+
+
+@dataclass(frozen=True)
+class Spend:
+    """Budget already used (or reserved) in each period, EXCLUDING the payment being evaluated."""
+    day: int = 0
+    week: int = 0
+    month: int = 0
+
+    def as_dict(self) -> dict[str, int]:
+        return asdict(self)
+
+
+BUDGET_PERIODS = (("daily", "day", "today"), ("weekly", "week", "this week"), ("monthly", "month", "this month"))
 
 
 @dataclass(frozen=True)
@@ -70,15 +94,26 @@ def evaluate_policy(
     payment: dict[str, Any],
     daily_spent: int = 0,
     preconditions: list[tuple[str, str]] | None = None,
+    *,
+    agent_spend: Spend | None = None,
+    user_spend: Spend | None = None,
+    user_budget: dict[str, int | None] | None = None,
 ) -> dict[str, Any]:
-    """Evaluate one payment against a policy.
+    """Evaluate one payment against a policy (and the user's overall budget, if any).
 
     payment: {amount, category, merchant_id, merchant_name, merchant_category?}
-    daily_spent: budget already consumed today, EXCLUDING this payment.
+    agent_spend: what THIS agent already spent for this user, per period (excluding this payment).
+        `daily_spent` is a shorthand for Spend(day=daily_spent) when agent_spend is not given.
+    user_spend: what ALL of the user's agents already spent, per period. Needed with user_budget.
+    user_budget: {"daily": int|None, "weekly": int|None, "monthly": int|None}; None = no cap.
     preconditions: [(violation_code, reason)] discovered by the caller.
 
-    Returns {authorized, requires_approval, violations, reasons, policy, daily_spent}.
+    Returns {authorized, requires_approval, violations, reasons, policy, daily_spent, spend, user_budget}.
     """
+    agent_spend = agent_spend or Spend(day=daily_spent)
+    daily_spent = agent_spend.day
+    budget = {k: v for k, v in (user_budget or {}).items() if v is not None}
+    spend_report = {"agent": agent_spend.as_dict(), "user": (user_spend or agent_spend).as_dict()}
     violations: list[str] = []
     reasons: list[str] = []
     for code, reason in preconditions or []:
@@ -96,6 +131,8 @@ def evaluate_policy(
             "reasons": reasons,
             "policy": None,
             "daily_spent": daily_spent,
+            "spend": spend_report,
+            "user_budget": budget or None,
         }
     if isinstance(rules, dict):
         rules = PolicyRules.from_dict(rules)
@@ -150,8 +187,18 @@ def evaluate_policy(
             violations.append("daily_limit_exceeded")
             reasons.append(
                 f"Daily limit INR {rules.daily_limit:,} exceeded: INR {daily_spent:,} already used today "
-                f"+ INR {amount:,} = INR {projected:,}."
+                f"by this agent + INR {amount:,} = INR {projected:,}."
             )
+        totals = user_spend or agent_spend
+        for key, period, label in BUDGET_PERIODS:
+            cap = budget.get(key)
+            used = getattr(totals, period)
+            if cap is not None and used + amount > cap:
+                violations.append(f"user_{key}_budget_exceeded")
+                reasons.append(
+                    f"The user's {key} budget of INR {cap:,} for all agents together is exceeded: INR {used:,} "
+                    f"already used {label} + INR {amount:,} = INR {used + amount:,}."
+                )
 
     if not rules.is_active:
         violations.append("agent_unauthorized")
@@ -175,4 +222,6 @@ def evaluate_policy(
         "reasons": reasons,
         "policy": rules.summary(),
         "daily_spent": daily_spent,
+        "spend": spend_report,
+        "user_budget": budget or None,
     }
