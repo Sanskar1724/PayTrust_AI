@@ -96,6 +96,31 @@ def spend_snapshot(session: Session, user_id: int, agent_id: int, day: str,
     return Spend(**agent), Spend(**total)
 
 
+def scoped_day_spend(session: Session, user_id: int, agent_id: int, day: str, category: str | None,
+                     merchant_id: int | None, exclude_payment_id: int | None = None) -> dict[str, int]:
+    """This agent's spend on `day` in `category` and at `merchant_id`, for category/merchant limits.
+    A past payment's category is its merchant's REGISTERED category when the merchant is known."""
+    stmt = (
+        select(Payment.amount, Payment.merchant_id, Payment.category, Merchant.category)
+        .outerjoin(Merchant, Merchant.id == Payment.merchant_id)
+        .where(Payment.user_id == user_id, Payment.agent_id == agent_id, Payment.spend_day == day,
+               Payment.status.in_(PaymentStatus.COUNTS_TOWARD_SPEND))
+    )
+    if exclude_payment_id is not None:
+        stmt = stmt.where(Payment.id != exclude_payment_id)
+    in_category = at_merchant = 0
+    for amount, pay_merchant, claimed, registered in session.execute(stmt):
+        if category and (registered or claimed) == category:
+            in_category += amount
+        if merchant_id is not None and pay_merchant == merchant_id:
+            at_merchant += amount
+    return {"category": in_category, "merchant": at_merchant}
+
+
+def needs_scoped_spend(policy: Policy | None) -> bool:
+    return bool(policy and (policy.category_limits or policy.merchant_limits))
+
+
 def gather_context(session: Session, user_id: int, agent_id: int, merchant_id: int, amount: int,
                    now) -> dict[str, Any]:
     """Payer history, read inside the locked transaction. The new payment is not yet written."""
@@ -177,10 +202,14 @@ def _evaluate_in_session(session: Session, req: PaymentIn, agent_id: int, key_ag
         "merchant_category": merchant.category if merchant else None,
         "merchant_risk_tier": merchant.risk_tier if merchant else None,
     }
+    scoped = None
+    if needs_scoped_spend(policy):
+        limit_category = (merchant.category if merchant else None) or req.category
+        scoped = scoped_day_spend(session, req.user_id, agent_id, spend_day(now), limit_category, req.merchant_id)
     policy_result = evaluate_policy(policy.as_rules() if policy else None, payment_facts,
                                     preconditions=preconditions, agent_spend=context.pop("agent_spend"),
                                     user_spend=context.pop("user_spend"),
-                                    user_budget=user.budget() if user else None)
+                                    user_budget=user.budget() if user else None, scoped_spend=scoped)
     risk_result = assess_risk(payment_facts, policy_result, context)
     risk_result["context"] = {k: v for k, v in context.items() if k != "daily_limit"}
     decision = decide(policy_result, risk_result)

@@ -19,7 +19,7 @@ from app.errors import Conflict, NotFound
 from app.log import get_logger
 from app.models import Agent, ApiKey, Merchant, Payment, PaymentStatus, Policy, User
 from app.services import audit, job_handlers, jobs
-from app.services.evaluation import spend_snapshot, summary
+from app.services.evaluation import needs_scoped_spend, scoped_day_spend, spend_snapshot, summary
 from app.services.events import bus
 
 logger = get_logger("approvals")
@@ -102,8 +102,13 @@ def approval_blockers(session: Session, payment: Payment) -> list[str]:
         "merchant_name": merchant.name if merchant else payment.merchant_name,
         "merchant_category": merchant.category if merchant else None,
     }
+    scoped = None
+    if needs_scoped_spend(policy):
+        scoped = scoped_day_spend(session, payment.user_id, payment.agent_id, payment.spend_day,
+                                  facts["merchant_category"] or payment.category, payment.merchant_id,
+                                  exclude_payment_id=payment.id)
     result = evaluate_policy(policy.as_rules(), facts, agent_spend=agent_spend, user_spend=user_spend,
-                             user_budget=user.budget() if user else None)
+                             user_budget=user.budget() if user else None, scoped_spend=scoped)
     # Each violation appends exactly one reason, in order, before any informational note.
     blockers.extend(result["reasons"][:len(result["violations"])])
     return blockers

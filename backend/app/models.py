@@ -136,6 +136,8 @@ class Policy(Base):
     blocked_categories: Mapped[list[str]] = mapped_column(JSONType, default=list)
     allowed_merchants: Mapped[list[str] | None] = mapped_column(JSONType, nullable=True)
     blocked_merchants: Mapped[list[str] | None] = mapped_column(JSONType, nullable=True)
+    category_limits: Mapped[dict[str, int] | None] = mapped_column(JSONType, nullable=True)  # category → daily cap
+    merchant_limits: Mapped[dict[str, int] | None] = mapped_column(JSONType, nullable=True)  # merchant id/name → cap
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
     updated_by: Mapped[str | None] = mapped_column(String(254), nullable=True)
@@ -153,6 +155,8 @@ class Policy(Base):
             "blocked_categories": list(self.blocked_categories or []),
             "allowed_merchants": list(self.allowed_merchants) if self.allowed_merchants else None,
             "blocked_merchants": list(self.blocked_merchants) if self.blocked_merchants else None,
+            "category_limits": dict(self.category_limits) if self.category_limits else None,
+            "merchant_limits": dict(self.merchant_limits) if self.merchant_limits else None,
             "is_active": self.is_active,
         }
 

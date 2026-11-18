@@ -6,7 +6,7 @@ from datetime import datetime
 from itertools import pairwise
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictInt, field_validator, model_validator
 
 from app.services.netguard import UnsafeUrl, check_callback_url
 
@@ -24,6 +24,12 @@ def _normalize_categories(values: list[str]) -> list[str]:
         if low not in out:
             out.append(low)
     return out
+
+
+def _cap(amount: int) -> int:
+    if isinstance(amount, bool) or not isinstance(amount, int) or not 0 <= amount <= MAX_AMOUNT:
+        raise ValueError(f"limits must be whole INR between 0 and {MAX_AMOUNT:,}")
+    return amount
 
 
 def _callback_url(v: str | None) -> str | None:
@@ -336,12 +342,39 @@ class PolicyIn(BaseModel):
     blocked_categories: list[str] = []
     allowed_merchants: list[str] | None = None
     blocked_merchants: list[str] | None = None
+    category_limits: dict[str, StrictInt] | None = Field(
+        default=None, description='Daily cap per category for this agent, e.g. {"fashion": 5000}')
+    merchant_limits: dict[str, StrictInt] | None = Field(
+        default=None, description='Daily cap per merchant (id or registered name), e.g. {"GadgetHub": 10000}')
     is_active: bool = True
 
     @field_validator("allowed_categories", "blocked_categories")
     @classmethod
     def _cats(cls, v: list[str]) -> list[str]:
         return _normalize_categories(v)
+
+    @field_validator("category_limits")
+    @classmethod
+    def _category_limits(cls, v: dict[str, int] | None) -> dict[str, int] | None:
+        if not v:
+            return None
+        names = _normalize_categories(list(v))
+        if len(names) != len(v):
+            raise ValueError("category_limits has the same category twice")
+        return {name: _cap(amount) for name, amount in zip(names, v.values(), strict=True)}
+
+    @field_validator("merchant_limits")
+    @classmethod
+    def _merchant_limits(cls, v: dict[str, int] | None) -> dict[str, int] | None:
+        if not v:
+            return None
+        out = {}
+        for key, amount in v.items():
+            key = str(key).strip()
+            if not key or len(key) > 160:
+                raise ValueError("merchant_limits keys must be a merchant id or name (1-160 characters)")
+            out[key] = _cap(amount)
+        return out
 
     @model_validator(mode="after")
     def _consistent(self) -> PolicyIn:

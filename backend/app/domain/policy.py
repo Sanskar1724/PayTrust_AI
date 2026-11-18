@@ -9,6 +9,11 @@ Rules (all from the user+agent policy row):
   * this agent's spend today + amount > daily_limit → daily_limit_exceeded
   * … this week / this month > weekly_limit / monthly_limit (optional)
                                                    → weekly_limit_exceeded / monthly_limit_exceeded
+  * this agent's spend today in the payment's category / at its merchant + amount
+    > category_limits[category] / merchant_limits[merchant id or name] (optional)
+                                                   → category_limit_exceeded / merchant_limit_exceeded
+    (the category is the merchant's REGISTERED category when known, so relabelling a
+    purchase cannot dodge a category limit)
   * policy inactive                                → agent_unauthorized
 
 User budget (optional, on the user; caps ALL of the user's agents together):
@@ -57,6 +62,8 @@ class PolicyRules:
     is_active: bool = True
     weekly_limit: int | None = None
     monthly_limit: int | None = None
+    category_limits: dict[str, int] | None = None   # category → daily cap for this agent
+    merchant_limits: dict[str, int] | None = None   # merchant id or name (casefolded) → daily cap
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> PolicyRules:
@@ -74,6 +81,10 @@ class PolicyRules:
             is_active=bool(d.get("is_active", True)),
             weekly_limit=int(d["weekly_limit"]) if d.get("weekly_limit") is not None else None,
             monthly_limit=int(d["monthly_limit"]) if d.get("monthly_limit") is not None else None,
+            category_limits={str(k).lower().strip(): int(v) for k, v in d["category_limits"].items()}
+            if d.get("category_limits") else None,
+            merchant_limits={str(k).strip().casefold(): int(v) for k, v in d["merchant_limits"].items()}
+            if d.get("merchant_limits") else None,
         )
 
     def summary(self) -> dict[str, Any]:
@@ -85,6 +96,8 @@ class PolicyRules:
             "blocked_categories": list(self.blocked_categories),
             "weekly_limit": self.weekly_limit,
             "monthly_limit": self.monthly_limit,
+            "category_limits": dict(self.category_limits) if self.category_limits else None,
+            "merchant_limits": dict(self.merchant_limits) if self.merchant_limits else None,
         }
 
 
@@ -106,6 +119,7 @@ def evaluate_policy(
     agent_spend: Spend | None = None,
     user_spend: Spend | None = None,
     user_budget: dict[str, int | None] | None = None,
+    scoped_spend: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Evaluate one payment against a policy (and the user's overall budget, if any).
 
@@ -114,6 +128,9 @@ def evaluate_policy(
         `daily_spent` is a shorthand for Spend(day=daily_spent) when agent_spend is not given.
     user_spend: what ALL of the user's agents already spent, per period. Needed with user_budget.
     user_budget: {"daily": int|None, "weekly": int|None, "monthly": int|None}; None = no cap.
+    scoped_spend: {"category": int, "merchant": int}: this agent's spend today in the payment's
+        (registered) category and at its merchant, excluding this payment. Needed for
+        category_limits / merchant_limits.
     preconditions: [(violation_code, reason)] discovered by the caller.
 
     Returns {authorized, requires_approval, violations, reasons, policy, daily_spent, spend, user_budget}.
@@ -207,6 +224,24 @@ def evaluate_policy(
                     f"{name} limit INR {limit:,} exceeded: INR {used:,} already used {label} "
                     f"by this agent + INR {amount:,} = INR {used + amount:,}."
                 )
+        scoped = scoped_spend or {}
+        limit_category = merchant_category or category
+        cat_cap = (rules.category_limits or {}).get(limit_category)
+        if cat_cap is not None and scoped.get("category", 0) + amount > cat_cap:
+            used = scoped.get("category", 0)
+            violations.append("category_limit_exceeded")
+            reasons.append(
+                f"Daily limit for '{limit_category}' INR {cat_cap:,} exceeded: INR {used:,} already used today "
+                f"in this category by this agent + INR {amount:,} = INR {used + amount:,}."
+            )
+        merchant_caps = [v for k, v in (rules.merchant_limits or {}).items() if k in merchant_keys]
+        if merchant_caps and scoped.get("merchant", 0) + amount > min(merchant_caps):
+            cap, used = min(merchant_caps), scoped.get("merchant", 0)
+            violations.append("merchant_limit_exceeded")
+            reasons.append(
+                f"Daily limit at '{merchant_name}' INR {cap:,} exceeded: INR {used:,} already used today at this "
+                f"merchant by this agent + INR {amount:,} = INR {used + amount:,}."
+            )
         totals = user_spend or agent_spend
         for key, period, label in BUDGET_PERIODS:
             cap = budget.get(key)
@@ -240,6 +275,6 @@ def evaluate_policy(
         "reasons": reasons,
         "policy": rules.summary(),
         "daily_spent": daily_spent,
-        "spend": spend_report,
+        "spend": spend_report | ({"scoped_today": scoped_spend} if scoped_spend is not None else {}),
         "user_budget": budget or None,
     }
