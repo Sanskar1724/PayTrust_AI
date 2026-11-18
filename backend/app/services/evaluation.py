@@ -216,6 +216,8 @@ def _evaluate_in_session(session: Session, req: PaymentIn, agent_id: int, key_ag
                                     user_spend=context.pop("user_spend"),
                                     user_budget=user.budget() if user else None, scoped_spend=scoped,
                                     local_time=local_now(now))
+    if policy is not None:
+        policy_result["policy_version"] = policy.version
     risk_result = assess_risk(payment_facts, policy_result, context)
     risk_result["context"] = {k: v for k, v in context.items() if k != "daily_limit"}
     decision = decide(policy_result, risk_result)
@@ -230,6 +232,7 @@ def _evaluate_in_session(session: Session, req: PaymentIn, agent_id: int, key_ag
         user_id=req.user_id,
         agent_id=agent_id,
         api_key_id=key_id,
+        policy_version=policy.version if policy else None,
         merchant_id=req.merchant_id,
         merchant_name=payment_facts["merchant_name"],
         amount=req.amount,

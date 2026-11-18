@@ -75,6 +75,8 @@ A worker (in the web process, or separately with `python -m app.cli worker`) cla
 
 An amount above `approval_threshold` sets `requires_approval`. That is not a violation.
 
+**Policy history.** Every policy has a `version`. Creating a policy, or changing any of its rules, writes an immutable copy of the rules to `policy_versions`: from the API, the seed data, the Arena or any other code, because it happens in the database layer, in the same transaction. Saving identical rules does not create a version. Each payment stores the `policy_version` that decided it (also in `policy_result.policy_version`), so any past decision can be explained with the exact rules in force at the time: `GET /v1/policies/{user_id}/{agent_id}/versions`.
+
 ### Risk (`app/domain/risk.py`)
 
 Points per factor, capped at 100. Any critical factor lifts the score to at least 65. Levels: LOW ≤ 30 < MEDIUM ≤ 60 < HIGH ≤ 80 < CRITICAL.

@@ -10,7 +10,8 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint, event, insert
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -142,6 +143,8 @@ class Policy(Base):
     allowed_until: Mapped[str | None] = mapped_column(String(5), nullable=True)   # "HH:MM", exclusive
     allowed_days: Mapped[list[str] | None] = mapped_column(JSONType, nullable=True)  # ["mon", …]; None = every day
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Bumped on every change to the rules; each version's rules are kept in policy_versions.
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
     updated_by: Mapped[str | None] = mapped_column(String(254), nullable=True)
 
@@ -167,6 +170,67 @@ class Policy(Base):
         }
 
 
+class PolicyVersion(Base):
+    """An immutable copy of a policy's rules. Written automatically whenever a policy is created
+    or its rules change (see the mapper events below), whoever makes the change."""
+
+    __tablename__ = "policy_versions"
+    __table_args__ = (UniqueConstraint("policy_id", "version", name="uq_policy_version"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    policy_id: Mapped[int] = mapped_column(ForeignKey("policies.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(Integer)
+    agent_id: Mapped[int] = mapped_column(Integer)
+    version: Mapped[int] = mapped_column(Integer)
+    rules: Mapped[dict] = mapped_column(JSONType)
+    updated_by: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+# Every column of a policy except bookkeeping is a rule: changing one creates a new version.
+_POLICY_BOOKKEEPING = {"id", "version", "updated_at", "updated_by"}
+
+
+def _snapshot(connection, policy: Policy) -> None:
+    connection.execute(insert(PolicyVersion.__table__).values(
+        policy_id=policy.id, user_id=policy.user_id, agent_id=policy.agent_id, version=policy.version,
+        rules=policy.as_rules(), updated_by=policy.updated_by, created_at=utcnow(),
+    ))
+
+
+@event.listens_for(Policy, "before_insert")
+def _policy_first_version(mapper, connection, policy: Policy) -> None:
+    policy.version = 1
+
+
+@event.listens_for(Policy, "after_insert")
+def _policy_snapshot_insert(mapper, connection, policy: Policy) -> None:
+    _snapshot(connection, policy)
+
+
+@event.listens_for(Policy, "before_update")
+def _policy_bump_version(mapper, connection, policy: Policy) -> None:
+    state = sa_inspect(policy)
+    changed = False
+    for attr in mapper.column_attrs:
+        if attr.key in _POLICY_BOOKKEEPING:
+            continue
+        history = state.attrs[attr.key].history
+        # Re-saving a rule with the same value is not a change (SQLAlchemy still records the set).
+        if history.added and list(history.added) != list(history.deleted):
+            changed = True
+            break
+    if changed:
+        policy.version = (policy.version or 1) + 1
+    policy.__dict__["_rules_changed"] = changed  # plain attribute, not a column
+
+
+@event.listens_for(Policy, "after_update")
+def _policy_snapshot_update(mapper, connection, policy: Policy) -> None:
+    if policy.__dict__.pop("_rules_changed", False):
+        _snapshot(connection, policy)
+
+
 class Payment(Base):
     __tablename__ = "payments"
     __table_args__ = (
@@ -183,6 +247,8 @@ class Payment(Base):
     agent_id: Mapped[int] = mapped_column(Integer, index=True)
     # The API key that submitted the request (None for playground). Revoking it blocks approval.
     api_key_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # The policy version that decided this payment (None when there was no policy).
+    policy_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     merchant_id: Mapped[int] = mapped_column(Integer, index=True)
     merchant_name: Mapped[str] = mapped_column(String(160))
     amount: Mapped[int] = mapped_column(Integer)

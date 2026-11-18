@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.api.deps import current_operator, require_role
 from app.db import get_session, utcnow
 from app.errors import Conflict, NotFound, ValidationFailed
-from app.models import Agent, ApiKey, Merchant, Operator, Policy, Role, User
+from app.models import Agent, ApiKey, Merchant, Operator, Policy, PolicyVersion, Role, User
 from app.schemas import (
     AgentCreated,
     AgentIn,
@@ -22,6 +22,7 @@ from app.schemas import (
     MerchantOut,
     PolicyIn,
     PolicyOut,
+    PolicyVersionOut,
     UserBudget,
     UserIn,
     UserOut,
@@ -176,6 +177,17 @@ def list_policies(_: Operator = Depends(current_operator), session: Session = De
     return session.scalars(select(Policy).order_by(Policy.user_id, Policy.agent_id)).all()
 
 
+@router.get("/policies/{user_id}/{agent_id}/versions", response_model=list[PolicyVersionOut],
+            summary="Every version of a user + agent policy, newest first")
+def policy_versions(user_id: int, agent_id: int, _: Operator = Depends(current_operator),
+                    session: Session = Depends(get_session)):
+    policy = session.scalar(select(Policy).where(Policy.user_id == user_id, Policy.agent_id == agent_id))
+    if policy is None:
+        raise NotFound("No policy for this user and agent")
+    return session.scalars(select(PolicyVersion).where(PolicyVersion.policy_id == policy.id)
+                           .order_by(PolicyVersion.version.desc())).all()
+
+
 @router.put("/policies", response_model=PolicyOut, summary="Create or replace the policy for a user + agent")
 def upsert_policy(body: PolicyIn, op: Operator = Depends(admin), session: Session = Depends(get_session)):
     if session.get(User, body.user_id) is None:
@@ -192,5 +204,5 @@ def upsert_policy(body: PolicyIn, op: Operator = Depends(admin), session: Sessio
     policy.updated_by = op.email
     session.flush()
     audit.record(session, op.email, "POLICY_UPDATED", None, user_id=body.user_id, agent_id=body.agent_id,
-                 before=before, after=policy.as_rules())
+                 version=policy.version, before=before, after=policy.as_rules())
     return policy

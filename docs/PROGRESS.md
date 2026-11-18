@@ -2,7 +2,7 @@
 
 A plain-language record of what has been changed in PayTrust, why, and what comes next. Updated at the end of every phase.
 
-*Last updated: 2026-11-18 · current work: Phase 3 on branch `v2.3-product`*
+*Last updated: 2026-11-18 · current work: Phase 3, step 8f (console screens)*
 
 ---
 
@@ -39,11 +39,12 @@ It started as a Razorpay Buildathon entry (Track 02, AI Risk Manager). The Build
 | **2. Reliability** | ⑪ Durable background jobs (outbox, retries, dead letters) | ✅ done | `main` |
 | | Dead-letter page in the console | ✅ done | `main` |
 | | ⑫ `httpx2` test warning | ✅ done | `main` |
-| **3. Product** | ⑧ Richer policies: 8a per-agent limits + user budget | ✅ done | `v2.3-product` |
-| | ⑧ Richer policies: 8b weekly + monthly limits | ✅ done | `v2.3-product` |
-| | ⑧ Richer policies: 8c category + merchant limits | ✅ done | `v2.3-product` |
-| | ⑧ Richer policies: 8d time windows | ✅ done | `v2.3-product` |
-| | ⑧ Richer policies: 8e–8f | 🔵 **in progress** | `v2.3-product` |
+| **3. Product** | ⑧ Richer policies: 8a per-agent limits + user budget | ✅ done | `main` |
+| | ⑧ Richer policies: 8b weekly + monthly limits | ✅ done | `main` |
+| | ⑧ Richer policies: 8c category + merchant limits | ✅ done | `main` |
+| | ⑧ Richer policies: 8d time windows | ✅ done | `main` |
+| | ⑧ Richer policies: 8e policy history | ✅ done | `main` |
+| | ⑧ Richer policies: 8f console screens | 🔵 **next** | |
 | | ⑦ MCP server + Python SDK for agents | ⬜ next | |
 | | ⑤ Approval by the real user (signed link + email) | ⬜ needs email key + public URL | |
 | | ⑥ Real money flow (PAID / FAILED / REFUNDED) | ⬜ needs Razorpay test keys + public URL | |
@@ -95,7 +96,7 @@ Built in this order, one commit each, with tests:
 | 8b ✅ | **Weekly and monthly limits** per policy | TripMate: ₹2,00,000 a month |
 | 8c ✅ | **Per-category and per-merchant limits** (a category limit follows the merchant's registered category, so relabelling a purchase can't dodge it) | ShopBuddy: at most ₹5,000/day on fashion, ₹10,000/day at GadgetHub |
 | 8d ✅ | **Time windows** (hours and weekdays, in the spend time zone; overnight windows work; approval checks the time the agent asked) | CommuteBot may pay only 06:00–22:00, Monday–Saturday |
-| 8e | **Policy history** | every change saved as a numbered version; each payment records which version decided it |
+| 8e ✅ | **Policy history** | every change saved as a numbered version; each payment records which version decided it |
 | 8f | **Console**: edit all of the above, user budgets on the Users page, policy history | |
 
 Each new rule has its own violation code (for example `weekly_limit_exceeded`, `category_limit_exceeded`, `outside_allowed_hours`, `user_daily_budget_exceeded`), so every decision still explains exactly which rule stopped it. Approvals re-check all of them.

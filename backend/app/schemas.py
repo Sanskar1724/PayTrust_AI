@@ -256,6 +256,15 @@ class UserOut(UserIn):
         return self
 
 
+class PolicyVersionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    version: int
+    rules: dict[str, Any]
+    updated_by: str | None
+    created_at: datetime
+
+
 class AgentIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=1000)
@@ -418,6 +427,7 @@ class PolicyOut(PolicyIn):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    version: int
     updated_at: datetime
     updated_by: str | None
 
