@@ -2,6 +2,8 @@
 
 The full interactive reference is at `/docs` (OpenAPI) on any running instance.
 
+> **Using Python?** The SDK in [`sdk/python`](../sdk/python/README.md) wraps everything below (safe retries, waiting for approval, callback verification) and includes an MCP server, so MCP-capable agents can use PayTrust without writing code.
+
 ## 1. Get credentials
 
 An admin creates the agent and an API key in the console (**Agents & keys**), and a policy for each user the agent may spend for (**Policies**). The key is shown once.

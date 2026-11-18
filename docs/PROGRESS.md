@@ -2,7 +2,7 @@
 
 A plain-language record of what has been changed in PayTrust, why, and what comes next. Updated at the end of every phase.
 
-*Last updated: 2026-11-18 · current work: Phase 3, item ⑦ (MCP server + Python SDK)*
+*Last updated: 2026-11-18 · current work: tidying the repository structure; then ⑤ and ⑥ (need your keys)*
 
 ---
 
@@ -45,14 +45,14 @@ It started as a Razorpay Buildathon entry (Track 02, AI Risk Manager). The Build
 | | ⑧ Richer policies: 8d time windows | ✅ done | `main` |
 | | ⑧ Richer policies: 8e policy history | ✅ done | `main` |
 | | ⑧ Richer policies: 8f console screens | ✅ done | `main` |
-| | ⑦ MCP server + Python SDK | 🔵 **next** | |
+| | ⑦ MCP server + Python SDK | ✅ done | `main` |
 | | ⑤ Approval by the real user (signed link + email) | ⬜ needs email key + public URL | |
 | | ⑥ Real money flow (PAID / FAILED / REFUNDED) | ⬜ needs Razorpay test keys + public URL | |
 | **4. Scale** | ⑨ Multi-tenant workspaces | ⬜ | |
 | | ⑩ ML trained on reviewer decisions | ⬜ | |
 | | Rewrite the v1-era business docs | ⬜ needs your pricing | |
 
-**Done: 7 of 12 roadmap items (⑧ richer policies is complete), plus the demo and the CI fixes.**
+**Done: 8 of 12 roadmap items (⑧ richer policies and ⑦ SDK + MCP are complete), plus the demo and the CI fixes.**
 
 ## 4. What has been done, in plain words
 
@@ -103,7 +103,7 @@ Each new rule has its own violation code (for example `weekly_limit_exceeded`, `
 
 ## 6. Next
 
-1. **⑦ MCP server + Python SDK** (in progress next). Agents connect with a few lines of code instead of raw HTTP. Needs nothing external.
+1. ✅ **⑦ MCP server + Python SDK** (`sdk/python`). `pip install paytrust`: `pt.authorize(...)` returns a decision with `can_pay`; safe retries; `wait_for_resolution`; callback verification; clear error types. `paytrust-mcp` gives MCP-capable agents three tools (`authorize_payment`, `get_payment_status`, `wait_for_approval`) and tells them the rules. Tested on its own (23 tests) and against the real app (6 tests); CI has its own SDK job.
 2. **⑤ Approval by the real user.** PayTrust sends the person whose money it is a signed approval link (and an email). Needs an email API key (Resend, free tier) and a public URL (`cloudflared`, free).
 3. **⑥ Real money flow.** Razorpay test-mode webhooks update payments to PAID / FAILED / REFUNDED, and limits count captured money. Needs Razorpay test keys (free, no KYC) and the public URL.
 4. **Phase 4.** Multi-tenant workspaces, an ML model that learns from reviewer decisions, updated business docs.

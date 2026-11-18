@@ -18,6 +18,10 @@ backend/data/
 *.db-shm
 *.db-wal
 
+# Python SDK build output
+sdk/python/dist/
+*.egg-info/
+
 # Frontend
 frontend/node_modules/
 frontend/dist/
