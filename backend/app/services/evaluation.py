@@ -48,6 +48,11 @@ STATUS_FOR_DECISION = {
 }
 
 
+def local_now(now=None):
+    """`now` in SPEND_TIMEZONE: the clock policies' time windows and "today" are measured on."""
+    return (now or utcnow()).astimezone(ZoneInfo(get_settings().SPEND_TIMEZONE))
+
+
 def spend_day(now=None) -> str:
     now = now or utcnow()
     return now.astimezone(ZoneInfo(get_settings().SPEND_TIMEZONE)).date().isoformat()
@@ -209,7 +214,8 @@ def _evaluate_in_session(session: Session, req: PaymentIn, agent_id: int, key_ag
     policy_result = evaluate_policy(policy.as_rules() if policy else None, payment_facts,
                                     preconditions=preconditions, agent_spend=context.pop("agent_spend"),
                                     user_spend=context.pop("user_spend"),
-                                    user_budget=user.budget() if user else None, scoped_spend=scoped)
+                                    user_budget=user.budget() if user else None, scoped_spend=scoped,
+                                    local_time=local_now(now))
     risk_result = assess_risk(payment_facts, policy_result, context)
     risk_result["context"] = {k: v for k, v in context.items() if k != "daily_limit"}
     decision = decide(policy_result, risk_result)

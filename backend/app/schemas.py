@@ -8,10 +8,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictInt, field_validator, model_validator
 
+from app.domain.policy import WEEKDAYS
 from app.services.netguard import UnsafeUrl, check_callback_url
 
 CATEGORIES = ("electronics", "books", "travel", "food", "fashion", "grocery", "fuel", "gambling", "financial_products")
 REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{6,64}$")
+HHMM = r"^([01]\d|2[0-3]):[0-5]\d$"
 MAX_AMOUNT = 10_000_000
 
 
@@ -346,7 +348,22 @@ class PolicyIn(BaseModel):
         default=None, description='Daily cap per category for this agent, e.g. {"fashion": 5000}')
     merchant_limits: dict[str, StrictInt] | None = Field(
         default=None, description='Daily cap per merchant (id or registered name), e.g. {"GadgetHub": 10000}')
+    allowed_from: str | None = Field(default=None, pattern=HHMM, description='Local time, e.g. "06:00"')
+    allowed_until: str | None = Field(
+        default=None, pattern=HHMM, description='Local time, exclusive, e.g. "22:00"; before allowed_from = overnight')
+    allowed_days: list[str] | None = Field(default=None, description='e.g. ["mon", "tue", "wed", "thu", "fri", "sat"]')
     is_active: bool = True
+
+    @field_validator("allowed_days")
+    @classmethod
+    def _days(cls, v: list[str] | None) -> list[str] | None:
+        if not v:
+            return None
+        days = {str(d).strip().lower()[:3] for d in v}
+        unknown = days - set(WEEKDAYS)
+        if unknown:
+            raise ValueError(f"allowed_days must be weekday names, got {sorted(unknown)}")
+        return [d for d in WEEKDAYS if d in days]
 
     @field_validator("allowed_categories", "blocked_categories")
     @classmethod
@@ -387,6 +404,10 @@ class PolicyIn(BaseModel):
         for (small, a), (big, b) in pairwise([(n, v) for n, v in periods if v is not None]):
             if a > b:
                 raise ValueError(f"{small} cannot exceed {big}")
+        if (self.allowed_from is None) != (self.allowed_until is None):
+            raise ValueError("set both allowed_from and allowed_until, or neither")
+        if self.allowed_from is not None and self.allowed_from == self.allowed_until:
+            raise ValueError("allowed_from and allowed_until must differ")
         overlap = set(self.allowed_categories) & set(self.blocked_categories)
         if overlap:
             raise ValueError(f"categories cannot be both allowed and blocked: {sorted(overlap)}")

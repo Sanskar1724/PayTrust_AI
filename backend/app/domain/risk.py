@@ -132,6 +132,8 @@ def assess_risk(
         "monthly_limit_exceeded": ("high", 18, "Monthly limit would be exceeded"),
         "category_limit_exceeded": ("high", 15, "The daily limit for this category would be exceeded"),
         "merchant_limit_exceeded": ("high", 15, "The daily limit for this merchant would be exceeded"),
+        "outside_allowed_hours": ("high", 12, "Requested outside the hours this agent may pay"),
+        "outside_allowed_days": ("high", 12, "Requested on a day this agent may not pay"),
         "user_daily_budget_exceeded": ("high", 18, "The user's overall daily budget would be exceeded"),
         "user_weekly_budget_exceeded": ("high", 18, "The user's overall weekly budget would be exceeded"),
         "user_monthly_budget_exceeded": ("high", 18, "The user's overall monthly budget would be exceeded"),

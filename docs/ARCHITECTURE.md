@@ -65,6 +65,7 @@ A worker (in the web process, or separately with `python -m app.cli worker`) cla
 | `max_transaction_exceeded` | amount > max per payment |
 | `daily_limit_exceeded` | this agent's spend today + amount > the policy's daily limit (other agents' spending doesn't count) |
 | `category_limit_exceeded` / `merchant_limit_exceeded` | this agent's spend today in the payment's category (the merchant's **registered** category, so relabelling can't dodge it) or at its merchant (keyed by id or registered name) + amount > the optional `category_limits` / `merchant_limits` cap |
+| `outside_allowed_hours` / `outside_allowed_days` | the agent asked outside the optional `allowed_from`–`allowed_until` window (local time in `SPEND_TIMEZONE`; a window like 22:00–06:00 runs past midnight) or on a day not in `allowed_days`. The approval re-check uses the time the agent asked, so a reviewer can still approve later in the evening |
 | `weekly_limit_exceeded` / `monthly_limit_exceeded` | the same for the optional `weekly_limit` (Monday–Sunday) and `monthly_limit` (calendar month); limits must be ordered daily ≤ weekly ≤ monthly |
 | `user_daily_budget_exceeded` / `user_weekly_budget_exceeded` / `user_monthly_budget_exceeded` | the user's optional overall budget (`PATCH /v1/users/{id}`): all agents' spend in the period + amount > the cap |
 | `category_blocked` / `category_not_allowed` | category the agent claims vs. the policy lists |

@@ -14,6 +14,9 @@ Rules (all from the user+agent policy row):
                                                    → category_limit_exceeded / merchant_limit_exceeded
     (the category is the merchant's REGISTERED category when known, so relabelling a
     purchase cannot dodge a category limit)
+  * requested outside allowed_from–allowed_until (local time, may wrap past midnight)
+                                                   → outside_allowed_hours
+  * requested on a day not in allowed_days        → outside_allowed_days
   * policy inactive                                → agent_unauthorized
 
 User budget (optional, on the user; caps ALL of the user's agents together):
@@ -33,7 +36,10 @@ always make the result unauthorized.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime, time
 from typing import Any
+
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")  # index = datetime.weekday()
 
 
 @dataclass(frozen=True)
@@ -64,6 +70,9 @@ class PolicyRules:
     monthly_limit: int | None = None
     category_limits: dict[str, int] | None = None   # category → daily cap for this agent
     merchant_limits: dict[str, int] | None = None   # merchant id or name (casefolded) → daily cap
+    allowed_from: str | None = None                 # "HH:MM", local; with allowed_until
+    allowed_until: str | None = None                # "HH:MM", exclusive; before allowed_from = overnight
+    allowed_days: tuple[str, ...] | None = None     # subset of WEEKDAYS
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> PolicyRules:
@@ -85,6 +94,9 @@ class PolicyRules:
             if d.get("category_limits") else None,
             merchant_limits={str(k).strip().casefold(): int(v) for k, v in d["merchant_limits"].items()}
             if d.get("merchant_limits") else None,
+            allowed_from=d.get("allowed_from") or None,
+            allowed_until=d.get("allowed_until") or None,
+            allowed_days=tuple(str(x).lower()[:3] for x in d["allowed_days"]) if d.get("allowed_days") else None,
         )
 
     def summary(self) -> dict[str, Any]:
@@ -98,6 +110,9 @@ class PolicyRules:
             "monthly_limit": self.monthly_limit,
             "category_limits": dict(self.category_limits) if self.category_limits else None,
             "merchant_limits": dict(self.merchant_limits) if self.merchant_limits else None,
+            "allowed_from": self.allowed_from,
+            "allowed_until": self.allowed_until,
+            "allowed_days": list(self.allowed_days) if self.allowed_days else None,
         }
 
 
@@ -110,6 +125,33 @@ DEFAULT_RULES = PolicyRules(
 )
 
 
+def _hhmm(value: str) -> time:
+    hours, minutes = value.split(":")
+    return time(int(hours), int(minutes))
+
+
+def within_hours(start: str, end: str, at: time) -> bool:
+    """[start, end) in local time; a window whose end is before its start runs past midnight."""
+    s, e = _hhmm(start), _hhmm(end)
+    return s <= at < e if s < e else at >= s or at < e
+
+
+def check_time_window(rules: PolicyRules, local_time: datetime) -> list[tuple[str, str]]:
+    found: list[tuple[str, str]] = []
+    if rules.allowed_days:
+        today = WEEKDAYS[local_time.weekday()]
+        if today not in rules.allowed_days:
+            days = ", ".join(d.title() for d in WEEKDAYS if d in rules.allowed_days)
+            found.append(("outside_allowed_days",
+                          f"This agent may pay only on {days}; the request came on a {local_time:%A}."))
+    if rules.allowed_from and rules.allowed_until:
+        if not within_hours(rules.allowed_from, rules.allowed_until, local_time.time()):
+            found.append(("outside_allowed_hours",
+                          f"This agent may pay only between {rules.allowed_from} and {rules.allowed_until}; "
+                          f"the request came at {local_time:%H:%M}."))
+    return found
+
+
 def evaluate_policy(
     rules: PolicyRules | dict[str, Any] | None,
     payment: dict[str, Any],
@@ -120,6 +162,7 @@ def evaluate_policy(
     user_spend: Spend | None = None,
     user_budget: dict[str, int | None] | None = None,
     scoped_spend: dict[str, int] | None = None,
+    local_time: datetime | None = None,
 ) -> dict[str, Any]:
     """Evaluate one payment against a policy (and the user's overall budget, if any).
 
@@ -131,6 +174,8 @@ def evaluate_policy(
     scoped_spend: {"category": int, "merchant": int}: this agent's spend today in the payment's
         (registered) category and at its merchant, excluding this payment. Needed for
         category_limits / merchant_limits.
+    local_time: when the agent asked, in SPEND_TIMEZONE. Needed for time windows; without it
+        allowed_from / allowed_until / allowed_days are not checked.
     preconditions: [(violation_code, reason)] discovered by the caller.
 
     Returns {authorized, requires_approval, violations, reasons, policy, daily_spent, spend, user_budget}.
@@ -252,6 +297,11 @@ def evaluate_policy(
                     f"The user's {key} budget of INR {cap:,} for all agents together is exceeded: INR {used:,} "
                     f"already used {label} + INR {amount:,} = INR {used + amount:,}."
                 )
+
+    if local_time is not None:
+        for code, reason in check_time_window(rules, local_time):
+            violations.append(code)
+            reasons.append(reason)
 
     if not rules.is_active:
         violations.append("agent_unauthorized")

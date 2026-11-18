@@ -138,6 +138,9 @@ class Policy(Base):
     blocked_merchants: Mapped[list[str] | None] = mapped_column(JSONType, nullable=True)
     category_limits: Mapped[dict[str, int] | None] = mapped_column(JSONType, nullable=True)  # category → daily cap
     merchant_limits: Mapped[dict[str, int] | None] = mapped_column(JSONType, nullable=True)  # merchant id/name → cap
+    allowed_from: Mapped[str | None] = mapped_column(String(5), nullable=True)    # "HH:MM" local, with allowed_until
+    allowed_until: Mapped[str | None] = mapped_column(String(5), nullable=True)   # "HH:MM", exclusive
+    allowed_days: Mapped[list[str] | None] = mapped_column(JSONType, nullable=True)  # ["mon", …]; None = every day
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
     updated_by: Mapped[str | None] = mapped_column(String(254), nullable=True)
@@ -157,6 +160,9 @@ class Policy(Base):
             "blocked_merchants": list(self.blocked_merchants) if self.blocked_merchants else None,
             "category_limits": dict(self.category_limits) if self.category_limits else None,
             "merchant_limits": dict(self.merchant_limits) if self.merchant_limits else None,
+            "allowed_from": self.allowed_from,
+            "allowed_until": self.allowed_until,
+            "allowed_days": list(self.allowed_days) if self.allowed_days else None,
             "is_active": self.is_active,
         }
 

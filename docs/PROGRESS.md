@@ -42,7 +42,8 @@ It started as a Razorpay Buildathon entry (Track 02, AI Risk Manager). The Build
 | **3. Product** | ⑧ Richer policies: 8a per-agent limits + user budget | ✅ done | `v2.3-product` |
 | | ⑧ Richer policies: 8b weekly + monthly limits | ✅ done | `v2.3-product` |
 | | ⑧ Richer policies: 8c category + merchant limits | ✅ done | `v2.3-product` |
-| | ⑧ Richer policies: 8d–8f | 🔵 **in progress** | `v2.3-product` |
+| | ⑧ Richer policies: 8d time windows | ✅ done | `v2.3-product` |
+| | ⑧ Richer policies: 8e–8f | 🔵 **in progress** | `v2.3-product` |
 | | ⑦ MCP server + Python SDK for agents | ⬜ next | |
 | | ⑤ Approval by the real user (signed link + email) | ⬜ needs email key + public URL | |
 | | ⑥ Real money flow (PAID / FAILED / REFUNDED) | ⬜ needs Razorpay test keys + public URL | |
@@ -93,7 +94,7 @@ Built in this order, one commit each, with tests:
 | 8a ✅ | **Per-agent spending + optional user budget** (daily / weekly / monthly) | GroceryGenie's ₹5,000/day counts only GroceryGenie; Asha can also cap *all* her agents at ₹1,00,000/day |
 | 8b ✅ | **Weekly and monthly limits** per policy | TripMate: ₹2,00,000 a month |
 | 8c ✅ | **Per-category and per-merchant limits** (a category limit follows the merchant's registered category, so relabelling a purchase can't dodge it) | ShopBuddy: at most ₹5,000/day on fashion, ₹10,000/day at GadgetHub |
-| 8d | **Time windows** (hours and weekdays, in the spend time zone) | CommuteBot may pay only 06:00–22:00, Monday–Saturday |
+| 8d ✅ | **Time windows** (hours and weekdays, in the spend time zone; overnight windows work; approval checks the time the agent asked) | CommuteBot may pay only 06:00–22:00, Monday–Saturday |
 | 8e | **Policy history** | every change saved as a numbered version; each payment records which version decided it |
 | 8f | **Console**: edit all of the above, user budgets on the Users page, policy history | |
 
