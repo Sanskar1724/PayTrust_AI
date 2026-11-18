@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import { AlertTriangle, Bot, CheckCircle2, Sparkles, XCircle } from "lucide-react";
 import { formatINR, formatPct, humanize } from "../lib/format";
+import { describeWindow } from "../lib/rules";
 import type { Payment } from "../lib/types";
 import { Badge, Button, Card, DecisionBadge, RiskMeter, StatusBadge } from "./ui";
 
@@ -43,12 +44,49 @@ export function DecisionHero({ p }: { p: Payment }) {
   );
 }
 
+/** Spend before this payment, against each limit that applies (this agent, and all the user's agents). */
+function SpendTable({ p }: { p: Payment }) {
+  const pol = p.policy_result;
+  const spend = pol.spend!;
+  const policy = pol.policy!;
+  const budget = pol.user_budget ?? {};
+  const rows: { label: string; used: number; cap: number | null | undefined }[] = [
+    { label: "This agent · today", used: spend.agent.day, cap: policy.daily_limit },
+    { label: "This agent · this week", used: spend.agent.week, cap: policy.weekly_limit },
+    { label: "This agent · this month", used: spend.agent.month, cap: policy.monthly_limit },
+    { label: "All agents · today", used: spend.user.day, cap: budget.daily },
+    { label: "All agents · this week", used: spend.user.week, cap: budget.weekly },
+    { label: "All agents · this month", used: spend.user.month, cap: budget.monthly },
+  ];
+  if (spend.scoped_today) {
+    rows.push({ label: "This category · today", used: spend.scoped_today.category, cap: null });
+    rows.push({ label: "This merchant · today", used: spend.scoped_today.merchant, cap: null });
+  }
+  return (
+    <table className="mt-2 w-full">
+      <thead><tr className="text-slate-400"><th className="py-1 text-left font-normal">Spent before this payment</th><th className="py-1 text-right font-normal">Used</th><th className="py-1 text-right font-normal">Limit</th></tr></thead>
+      <tbody>
+        {rows.map((r) => {
+          const over = r.cap != null && r.used + p.amount > r.cap;
+          return (
+            <tr key={r.label} className={clsx(over && "text-rose-700")}>
+              <td className="py-0.5">{r.label}</td>
+              <td className="py-0.5 text-right tabular-nums">{formatINR(r.used)}</td>
+              <td className="py-0.5 text-right tabular-nums">{r.cap != null ? formatINR(r.cap) : "—"}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
 export function PolicyCard({ p }: { p: Payment }) {
   const pol = p.policy_result;
   const limit = pol.policy?.daily_limit;
   const after = pol.daily_spent + p.amount;
   return (
-    <Card title="Policy check">
+    <Card title="Policy check" action={pol.policy_version != null && <Badge>policy v{pol.policy_version}</Badge>}>
       {pol.violations.length ? (
         <div className="mb-3 flex flex-wrap gap-1.5">
           {pol.violations.map((v) => <Badge key={v} className="bg-rose-50 text-rose-700 ring-rose-600/20">{humanize(v)}</Badge>)}
@@ -73,6 +111,8 @@ export function PolicyCard({ p }: { p: Payment }) {
             <div><div className="text-slate-400">Max per payment</div><div className="font-medium tabular-nums text-slate-800">{formatINR(pol.policy.max_transaction)}</div></div>
             <div><div className="text-slate-400">Approval above</div><div className="font-medium tabular-nums text-slate-800">{formatINR(pol.policy.approval_threshold)}</div></div>
           </div>
+          {pol.spend && <SpendTable p={p} />}
+          {describeWindow(pol.policy) && <div className="pt-1">Allowed to pay: {describeWindow(pol.policy)}</div>}
         </div>
       )}
     </Card>

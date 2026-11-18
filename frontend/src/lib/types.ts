@@ -72,7 +72,14 @@ export interface Payment extends PaymentSummary {
     violations: string[];
     reasons: string[];
     daily_spent: number;
-    policy: { daily_limit: number; max_transaction: number; approval_threshold: number } | null;
+    policy: (PolicyRules & { daily_limit: number; max_transaction: number; approval_threshold: number }) | null;
+    policy_version?: number;
+    spend?: {
+      agent: SpendPeriods;
+      user: SpendPeriods;
+      scoped_today?: { category: number; merchant: number };
+    };
+    user_budget?: { daily?: number; weekly?: number; monthly?: number } | null;
   };
   risk_result: {
     risk_score: number;
@@ -139,6 +146,29 @@ export interface User {
   name: string;
   email: string | null;
   external_ref: string | null;
+  daily_budget: number | null;
+  weekly_budget: number | null;
+  monthly_budget: number | null;
+  created_at: string;
+}
+
+export interface SpendPeriods { day: number; week: number; month: number }
+
+/** Optional rules added in v2.3. `null` means "not set". */
+export interface PolicyRules {
+  weekly_limit: number | null;
+  monthly_limit: number | null;
+  category_limits: Record<string, number> | null;
+  merchant_limits: Record<string, number> | null;
+  allowed_from: string | null;
+  allowed_until: string | null;
+  allowed_days: string[] | null;
+}
+
+export interface PolicyVersion {
+  version: number;
+  rules: Record<string, unknown>;
+  updated_by: string | null;
   created_at: string;
 }
 
@@ -169,7 +199,7 @@ export interface Merchant {
   created_at: string;
 }
 
-export interface Policy {
+export interface Policy extends PolicyRules {
   id: number;
   user_id: number;
   agent_id: number;
@@ -181,6 +211,7 @@ export interface Policy {
   allowed_merchants: string[] | null;
   blocked_merchants: string[] | null;
   is_active: boolean;
+  version: number;
   updated_at: string;
   updated_by: string | null;
 }
@@ -237,6 +268,8 @@ export interface ThresholdPoint {
   operational_cost: number;
   expected_total_cost: number;
 }
+
+export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 
 export const CATEGORIES = [
   "electronics", "books", "travel", "food", "fashion", "grocery", "fuel", "gambling", "financial_products",

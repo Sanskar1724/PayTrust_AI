@@ -2,7 +2,7 @@
 
 A plain-language record of what has been changed in PayTrust, why, and what comes next. Updated at the end of every phase.
 
-*Last updated: 2026-11-18 · current work: Phase 3, step 8f (console screens)*
+*Last updated: 2026-11-18 · current work: Phase 3, item ⑦ (MCP server + Python SDK)*
 
 ---
 
@@ -44,15 +44,15 @@ It started as a Razorpay Buildathon entry (Track 02, AI Risk Manager). The Build
 | | ⑧ Richer policies: 8c category + merchant limits | ✅ done | `main` |
 | | ⑧ Richer policies: 8d time windows | ✅ done | `main` |
 | | ⑧ Richer policies: 8e policy history | ✅ done | `main` |
-| | ⑧ Richer policies: 8f console screens | 🔵 **next** | |
-| | ⑦ MCP server + Python SDK for agents | ⬜ next | |
+| | ⑧ Richer policies: 8f console screens | ✅ done | `main` |
+| | ⑦ MCP server + Python SDK | 🔵 **next** | |
 | | ⑤ Approval by the real user (signed link + email) | ⬜ needs email key + public URL | |
 | | ⑥ Real money flow (PAID / FAILED / REFUNDED) | ⬜ needs Razorpay test keys + public URL | |
 | **4. Scale** | ⑨ Multi-tenant workspaces | ⬜ | |
 | | ⑩ ML trained on reviewer decisions | ⬜ | |
 | | Rewrite the v1-era business docs | ⬜ needs your pricing | |
 
-**Done: 6 of 12 roadmap items, plus the demo and the CI fix.**
+**Done: 7 of 12 roadmap items (⑧ richer policies is complete), plus the demo and the CI fixes.**
 
 ## 4. What has been done, in plain words
 
@@ -86,7 +86,7 @@ A self-contained environment in `demo/` to show PayTrust to people: 40 dummy use
 
 - **Daily limits** (fixed in 8a): each user+agent policy has its own daily limit, but "spent today" counted what **all** of that user's agents spent, so one flight booked by TripMate could use up the same user's grocery agent's limit. Now each policy counts only its own agent's spending, and a user can also have an optional overall budget (per day, week and month) that caps all their agents together.
 
-## 5. Now: Phase 3, item ⑧ (richer policies)
+## 5. Phase 3, item ⑧ (richer policies): complete
 
 Built in this order, one commit each, with tests:
 
@@ -97,13 +97,13 @@ Built in this order, one commit each, with tests:
 | 8c ✅ | **Per-category and per-merchant limits** (a category limit follows the merchant's registered category, so relabelling a purchase can't dodge it) | ShopBuddy: at most ₹5,000/day on fashion, ₹10,000/day at GadgetHub |
 | 8d ✅ | **Time windows** (hours and weekdays, in the spend time zone; overnight windows work; approval checks the time the agent asked) | CommuteBot may pay only 06:00–22:00, Monday–Saturday |
 | 8e ✅ | **Policy history** | every change saved as a numbered version; each payment records which version decided it |
-| 8f | **Console**: edit all of the above, user budgets on the Users page, policy history | |
+| 8f ✅ | **Console**: edit all of the above, user budgets on the Users page, policy history, spend breakdown in payment evidence | |
 
 Each new rule has its own violation code (for example `weekly_limit_exceeded`, `category_limit_exceeded`, `outside_allowed_hours`, `user_daily_budget_exceeded`), so every decision still explains exactly which rule stopped it. Approvals re-check all of them.
 
-## 6. After that
+## 6. Next
 
-1. **⑦ MCP server + Python SDK.** Agents connect with a few lines of code instead of raw HTTP. Needs nothing external.
+1. **⑦ MCP server + Python SDK** (in progress next). Agents connect with a few lines of code instead of raw HTTP. Needs nothing external.
 2. **⑤ Approval by the real user.** PayTrust sends the person whose money it is a signed approval link (and an email). Needs an email API key (Resend, free tier) and a public URL (`cloudflared`, free).
 3. **⑥ Real money flow.** Razorpay test-mode webhooks update payments to PAID / FAILED / REFUNDED, and limits count captured money. Needs Razorpay test keys (free, no KYC) and the public URL.
 4. **Phase 4.** Multi-tenant workspaces, an ML model that learns from reviewer decisions, updated business docs.
